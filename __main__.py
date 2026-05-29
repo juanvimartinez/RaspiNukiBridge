@@ -8,6 +8,7 @@ import hashlib
 import argparse
 import uuid
 import sys
+import signal
 
 import nacl
 from nacl.public import PrivateKey
@@ -307,4 +308,17 @@ if __name__ == "__main__":
             token = data["server"]["token"]
             server_id = data["server"]["id"]
             web_server = WebServer(host, port, token, server_id, nuki_manager)
+
+            # Register shutdown handler for clean cleanup
+            async def shutdown(sig):
+                logger.info(f"Received signal {sig}, shutting down...")
+                for nuki in nuki_manager.device_list:
+                    await nuki.cleanup()
+                await nuki_manager.stop_scanning()
+                logger.info("Cleanup complete")
+
+            loop = asyncio.get_event_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(shutdown(s)))
+
             web_server.start()
