@@ -139,16 +139,27 @@ class NukiManager:
 
     async def initialize(self):
         """Initialize scanner state - stop any existing scans from previous runs"""
-        logger.debug("Initializing scanner - stopping any existing scans")
-        try:
-            # Try to stop any existing scan from previous run
-            await self._scanner.stop()
-            logger.info("Stopped existing scanner from previous run")
-        except Exception as e:
-            # If no scan was running, this will fail - that's ok
-            logger.debug(f"No existing scan to stop (expected on first run): {e}")
+        logger.info("Initializing scanner - cleaning up any stale BlueZ state")
+
+        # Try multiple times to stop any existing scan
+        for attempt in range(3):
+            try:
+                await self._scanner.stop()
+                logger.info(f"Stopped existing scanner from previous run (attempt {attempt + 1})")
+                # Wait for BlueZ to fully release the scan
+                await asyncio.sleep(1.0)
+                break
+            except Exception as e:
+                if attempt < 2:
+                    logger.debug(f"Attempt {attempt + 1} to stop scanner: {e}, retrying...")
+                    await asyncio.sleep(0.5)
+                else:
+                    # Last attempt failed - no scan was running (expected on clean start)
+                    logger.debug(f"No existing scan to stop (expected on first/clean run): {e}")
+
         # Ensure our state matches reality
         self._scanner_running = False
+        logger.debug("Scanner initialization complete")
 
     @property
     def newstate_callback(self):
@@ -194,8 +205,21 @@ class NukiManager:
             except Exception as e:
                 # Check if scan is already in progress from previous run
                 if "InProgress" in str(e) or "Already" in str(e):
-                    logger.warning(f"Scanner already active in BlueZ (from previous run?), syncing state: {e}")
-                    self._scanner_running = True
+                    logger.warning(f"Scanner already active in BlueZ (from previous run?), attempting recovery: {e}")
+                    # Force stop the stale scan and restart with our callback
+                    try:
+                        await self._scanner.stop()
+                        logger.info("Stopped stale scanner")
+                        # Small delay to let BlueZ settle
+                        await asyncio.sleep(0.5)
+                        # Now try starting again
+                        await self._scanner.start()
+                        self._scanner_running = True
+                        logger.info("Scanner restarted successfully after recovery")
+                    except Exception as recovery_error:
+                        logger.error(f"Failed to recover scanner: {recovery_error}")
+                        # Last resort - mark as running and hope callbacks work
+                        self._scanner_running = True
                 else:
                     logger.error(f"Failed to start scanner: {e}")
                     raise
