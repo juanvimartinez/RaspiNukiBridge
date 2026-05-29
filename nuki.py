@@ -176,6 +176,7 @@ class NukiManager:
             logger.info("Start scanning")
             await self._scanner.start()
             self._scanner_running = True
+            logger.debug("Scanner started successfully")
 
     async def stop_scanning(self):
         async with self._scanner_lock:
@@ -185,6 +186,7 @@ class NukiManager:
             logger.info("Stop scanning")
             try:
                 await self._scanner.stop()
+                logger.debug("Scanner stopped successfully")
             except Exception as e:
                 logger.warning(f"Scanner stop error (ignored): {e}")
             finally:
@@ -594,6 +596,7 @@ class Nuki:
             logger.info("EOFError during notification")
 
     async def connect(self):
+        logger.debug(f"Connect called, acquiring lock... (connected: {self._client.is_connected if self._client else False})")
         async with self._connection_lock:
             if self._is_connecting:
                 logger.debug("Connect already in progress, waiting...")
@@ -603,12 +606,12 @@ class Nuki:
                 return
 
             self._is_connecting = True
+            logger.info(f"Nuki connecting to {self.address}")
             try:
                 if not self._client:
                     self._client = self.manager.get_client(self.address, timeout=self.connection_timeout)
 
                 await self.manager.stop_scanning()
-                logger.info("Nuki connecting")
                 await self._client.connect()
 
                 logger.debug(f"Services {[str(s) for s in self._client.services]}")
@@ -638,6 +641,7 @@ class Nuki:
                 raise
             finally:
                 self._is_connecting = False
+                logger.debug("Connect lock released")
 
     async def _start_cmd_timeout(self):
         await asyncio.sleep(self.command_timeout)
@@ -646,19 +650,25 @@ class Nuki:
 
     async def _command_worker(self):
         """Process commands sequentially from queue"""
+        logger.info("Command worker started")
         while True:
             try:
+                logger.debug(f"Command queue size: {self._command_queue.qsize()}")
                 command_func, args, result_future = await self._command_queue.get()
+                logger.debug(f"Processing command: {command_func.__name__}")
                 try:
                     result = await command_func(*args)
                     if not result_future.done():
                         result_future.set_result(result)
+                    logger.debug(f"Command {command_func.__name__} completed successfully")
                 except Exception as e:
+                    logger.error(f"Command {command_func.__name__} failed: {e}")
                     if not result_future.done():
                         result_future.set_exception(e)
                 finally:
                     self._command_queue.task_done()
             except asyncio.CancelledError:
+                logger.info("Command worker cancelled")
                 break
             except Exception as e:
                 logger.error(f"Command worker error: {e}")
@@ -666,13 +676,17 @@ class Nuki:
     async def _queue_command(self, command_func, *args):
         """Queue a command for sequential execution"""
         if not self._command_worker_task or self._command_worker_task.done():
+            logger.debug("Starting command worker task")
             self._command_worker_task = asyncio.create_task(self._command_worker())
 
+        queue_size = self._command_queue.qsize()
+        logger.debug(f"Queueing command {command_func.__name__}, queue size before: {queue_size}")
         result_future = asyncio.get_event_loop().create_future()
         await self._command_queue.put((command_func, args, result_future))
         return await result_future
 
     async def disconnect(self):
+        logger.debug("Disconnect called, acquiring lock...")
         async with self._connection_lock:
             if self._is_disconnecting:
                 logger.debug("Disconnect already in progress")
@@ -682,19 +696,20 @@ class Nuki:
                 return
 
             self._is_disconnecting = True
+            logger.info(f"Nuki disconnecting from {self.address}")
             try:
-                logger.info("Nuki disconnecting")
-
                 if self._command_timeout_task:
                     self._command_timeout_task.cancel()
                     self._command_timeout_task = None
 
                 await self._client.disconnect()
+                logger.info("Disconnect completed")
 
             except Exception as e:
                 logger.error(f"Disconnect error: {e}")
             finally:
                 self._is_disconnecting = False
+                logger.debug("Disconnect lock released")
                 # Always restart scanning after disconnect (success or failure)
                 await self.manager.start_scanning()
 
