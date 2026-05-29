@@ -1,0 +1,47 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.eggs
+*.egg
+
+# Virtual environments
+venv
+env
+ENV
+.venv
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Documentation
+*.md
+!README.md
+
+# Config (will be mounted via volume)
+nuki.yaml
+config/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+.pytest_cache
+.coverage
+htmlcov

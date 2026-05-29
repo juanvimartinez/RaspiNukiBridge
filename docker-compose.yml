@@ -1,0 +1,18 @@
+version: "3.3"
+
+services:
+  raspinukibridge:
+    build: .
+    container_name: raspinukibridge
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    environment:
+      TZ: Europe/Prague
+      CONFIG_FILE: /config/nuki.yaml
+      # Optional: enable debug logging
+      # PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./config:/config
+      - /run/dbus:/run/dbus:ro
+      - /var/run/dbus:/var/run/dbus:ro  # Some systems use this path
