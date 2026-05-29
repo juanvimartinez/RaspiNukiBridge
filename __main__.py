@@ -96,6 +96,8 @@ class WebServer:
 
     async def _startup(self, _app):
         self._start_datetime = datetime.datetime.now()
+        # Initialize scanner (stop any existing scans from previous runs)
+        await self.nuki_manager.initialize()
         await self.nuki_manager.start_scanning()
 
     async def callback_add(self, request):

@@ -137,6 +137,19 @@ class NukiManager:
         self._scanner_lock = asyncio.Lock()
         self._scanner_running = False
 
+    async def initialize(self):
+        """Initialize scanner state - stop any existing scans from previous runs"""
+        logger.debug("Initializing scanner - stopping any existing scans")
+        try:
+            # Try to stop any existing scan from previous run
+            await self._scanner.stop()
+            logger.info("Stopped existing scanner from previous run")
+        except Exception as e:
+            # If no scan was running, this will fail - that's ok
+            logger.debug(f"No existing scan to stop (expected on first run): {e}")
+        # Ensure our state matches reality
+        self._scanner_running = False
+
     @property
     def newstate_callback(self):
         return self._newstate_callback
@@ -174,9 +187,18 @@ class NukiManager:
                 logger.debug("Scanner already running, skipping start")
                 return
             logger.info("Start scanning")
-            await self._scanner.start()
-            self._scanner_running = True
-            logger.debug("Scanner started successfully")
+            try:
+                await self._scanner.start()
+                self._scanner_running = True
+                logger.debug("Scanner started successfully")
+            except Exception as e:
+                # Check if scan is already in progress from previous run
+                if "InProgress" in str(e) or "Already" in str(e):
+                    logger.warning(f"Scanner already active in BlueZ (from previous run?), syncing state: {e}")
+                    self._scanner_running = True
+                else:
+                    logger.error(f"Failed to start scanner: {e}")
+                    raise
 
     async def stop_scanning(self):
         async with self._scanner_lock:
