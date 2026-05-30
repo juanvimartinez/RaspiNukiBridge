@@ -254,11 +254,14 @@ class NukiManager:
                         logger.error(f"Nuclear option failed: {nuclear_error}")
                         # Don't mark as running - it's genuinely broken
                         self._scanner_running = False
-                        logger.error("Scanner is in broken state. Manual Bluetooth restart may be required.")
-                        raise
+                        logger.warning("Scanner failed to start. Will retry on next connect attempt.")
+                        # Don't raise - let the application start anyway
+                        # Scanner will be retried when devices try to connect
                 else:
                     logger.error(f"Failed to start scanner: {e}")
-                    raise
+                    self._scanner_running = False
+                    logger.warning("Scanner failed to start. Will retry on next connect attempt.")
+                    # Don't raise - let the application start anyway
 
     async def stop_scanning(self):
         async with self._scanner_lock:

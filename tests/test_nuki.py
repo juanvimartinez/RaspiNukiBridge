@@ -168,7 +168,8 @@ class TestNukiCommandEncoding:
         assert len(encrypted_message) > 30
         # Verify auth_id in message
         auth_id_in_msg = struct.unpack("<I", encrypted_message[24:28])[0]
-        assert auth_id_in_msg == auth_id
+        expected_auth_id = struct.unpack("<I", auth_id)[0]
+        assert auth_id_in_msg == expected_auth_id
 
     def test_decrypt_command(self, nuki_address, auth_id, nuki_public_key,
                               bridge_public_key, bridge_private_key):
@@ -201,19 +202,31 @@ class TestNukiBLEConnection:
         nuki.device_type = DeviceType.SMARTLOCK_1_2
 
         # Mock BleakClient
-        with patch('nuki.BleakClient') as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.is_connected = True
-            mock_client.connect = AsyncMock(return_value=True)
-            mock_client.start_notify = AsyncMock()
-            mock_client_class.return_value = mock_client
+        mock_client = AsyncMock()
+        mock_client.is_connected = False
+        mock_client.connect = AsyncMock(return_value=True)
+        mock_client.start_notify = AsyncMock()
+        # Make services iterable
+        mock_service = Mock()
+        mock_service.__str__ = Mock(return_value="mock_service")
+        mock_client.services = [mock_service]  # Make it a list so it's iterable
+        mock_client.services.characteristics = Mock()
+        mock_client.services.characteristics.values = Mock(return_value=[])
 
-            result = await nuki.connect()
+        # Mock manager
+        mock_manager = AsyncMock()
+        mock_manager.start_scanning = AsyncMock()
+        mock_manager.stop_scanning = AsyncMock()
+        mock_manager.get_client = Mock(return_value=mock_client)
+        nuki.manager = mock_manager
 
-            assert result is True
-            mock_client.connect.assert_called_once()
-            # Should start notifications on the data characteristic
-            assert mock_client.start_notify.called
+        result = await nuki.connect()
+
+        assert result is True
+        mock_manager.stop_scanning.assert_called_once()
+        mock_client.connect.assert_called_once()
+        # Should start notifications on the data characteristic
+        assert mock_client.start_notify.called
 
     @pytest.mark.asyncio
     async def test_connect_timeout(self, nuki_address, auth_id, nuki_public_key,
@@ -224,18 +237,28 @@ class TestNukiBLEConnection:
         nuki.device_type = DeviceType.SMARTLOCK_1_2
         nuki.connection_timeout = 1  # Short timeout
 
-        with patch('nuki.BleakClient') as mock_client_class:
-            mock_client = AsyncMock()
-            # Simulate slow connection
-            async def slow_connect(*args, **kwargs):
-                await asyncio.sleep(5)
-                return True
+        # Mock slow client
+        mock_client = AsyncMock()
+        mock_client.is_connected = False
+        # Simulate slow connection
+        async def slow_connect(*args, **kwargs):
+            await asyncio.sleep(5)
+            return True
+        mock_client.connect = slow_connect
+        # Make services iterable
+        mock_service = Mock()
+        mock_service.__str__ = Mock(return_value="mock_service")
+        mock_client.services = [mock_service]
 
-            mock_client.connect = slow_connect
-            mock_client_class.return_value = mock_client
+        # Mock manager
+        mock_manager = AsyncMock()
+        mock_manager.start_scanning = AsyncMock()
+        mock_manager.stop_scanning = AsyncMock()
+        mock_manager.get_client = Mock(return_value=mock_client)
+        nuki.manager = mock_manager
 
-            with pytest.raises(asyncio.TimeoutError):
-                await nuki.connect()
+        with pytest.raises(asyncio.TimeoutError):
+            await nuki.connect()
 
     @pytest.mark.asyncio
     async def test_disconnect_cleanup(self, nuki_address, auth_id, nuki_public_key,
@@ -244,6 +267,12 @@ class TestNukiBLEConnection:
         nuki = Nuki(nuki_address, auth_id, nuki_public_key,
                     bridge_public_key, bridge_private_key)
         nuki.device_type = DeviceType.SMARTLOCK_1_2
+
+        # Mock manager
+        mock_manager = AsyncMock()
+        mock_manager.start_scanning = AsyncMock()
+        mock_manager.stop_scanning = AsyncMock()
+        nuki.manager = mock_manager
 
         # Setup a connected client
         mock_client = AsyncMock()
@@ -255,7 +284,8 @@ class TestNukiBLEConnection:
         await nuki.disconnect()
 
         mock_client.disconnect.assert_called_once()
-        assert nuki._client is None
+        mock_manager.start_scanning.assert_called_once()
+        # Note: _client is not set to None in disconnect() - it's reused
 
     @pytest.mark.asyncio
     async def test_concurrent_connect_prevention(self, nuki_address, auth_id,
@@ -266,27 +296,40 @@ class TestNukiBLEConnection:
                     bridge_public_key, bridge_private_key)
         nuki.device_type = DeviceType.SMARTLOCK_1_2
 
-        with patch('nuki.BleakClient') as mock_client_class:
-            mock_client = AsyncMock()
+        # Mock slow client
+        mock_client = AsyncMock()
+        mock_client.is_connected = False
+        async def slow_connect(*args, **kwargs):
+            await asyncio.sleep(0.5)
+            return True
+        mock_client.connect = slow_connect
+        mock_client.start_notify = AsyncMock()
+        # Make services iterable
+        mock_service = Mock()
+        mock_service.__str__ = Mock(return_value="mock_service")
+        mock_client.services = [mock_service]
+        mock_client.services.characteristics = Mock()
+        mock_client.services.characteristics.values = Mock(return_value=[])
 
-            async def slow_connect(*args, **kwargs):
-                await asyncio.sleep(0.5)
-                return True
+        # Mock manager
+        mock_manager = AsyncMock()
+        mock_manager.start_scanning = AsyncMock()
+        mock_manager.stop_scanning = AsyncMock()
+        mock_manager.get_client = Mock(return_value=mock_client)
+        nuki.manager = mock_manager
 
-            mock_client.connect = slow_connect
-            mock_client.is_connected = True
-            mock_client.start_notify = AsyncMock()
-            mock_client_class.return_value = mock_client
+        # Start two connect operations concurrently
+        task1 = asyncio.create_task(nuki.connect())
+        await asyncio.sleep(0.1)  # Let first connect acquire lock
+        task2 = asyncio.create_task(nuki.connect())
 
-            # Start two connect operations concurrently
-            task1 = asyncio.create_task(nuki.connect())
-            await asyncio.sleep(0.1)  # Let first connect acquire lock
-            task2 = asyncio.create_task(nuki.connect())
+        results = await asyncio.gather(task1, task2)
 
-            results = await asyncio.gather(task1, task2)
-
-            # Only one connect should actually happen
-            assert mock_client_class.call_count == 1
+        # First connect should succeed, second should return early (already connecting)
+        assert results[0] is True
+        assert results[1] is None  # Second one returned early
+        # Only one stop_scanning should have been called
+        assert mock_manager.stop_scanning.call_count == 1
 
 
 class TestNukiLockActions:

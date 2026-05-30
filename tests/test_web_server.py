@@ -137,7 +137,7 @@ class TestInfoEndpoint:
     @pytest.mark.asyncio
     async def test_info_endpoint_success(self):
         """Test /info returns bridge information."""
-        mock_manager = Mock(spec=NukiManager)
+        mock_manager = MagicMock()  # No spec to allow __iter__
         mock_manager.__iter__ = Mock(return_value=iter([]))  # No devices
 
         server = WebServer("0.0.0.0", 8080, "test_token", 999, mock_manager)
@@ -194,7 +194,7 @@ class TestListEndpoint:
         mock_nuki1.is_battery_charging = False
         mock_nuki1.battery_percentage = 100
 
-        mock_manager = Mock(spec=NukiManager)
+        mock_manager = MagicMock()  # No spec to allow __iter__
         mock_manager.__iter__ = Mock(return_value=iter([mock_nuki1]))
 
         server = WebServer("0.0.0.0", 8080, "test_token", 123, mock_manager)
@@ -214,7 +214,7 @@ class TestListEndpoint:
     @pytest.mark.asyncio
     async def test_list_endpoint_empty(self):
         """Test /list with no configured devices."""
-        mock_manager = Mock(spec=NukiManager)
+        mock_manager = MagicMock()  # No spec to allow __iter__
         mock_manager.__iter__ = Mock(return_value=iter([]))
 
         server = WebServer("0.0.0.0", 8080, "test_token", 123, mock_manager)
@@ -470,7 +470,7 @@ class TestNewStateCallback:
         mock_nuki.battery_percentage = 100
 
         # Mock HTTP session
-        with patch('__main__.ClientSession') as mock_session_class:
+        with patch('aiohttp.ClientSession') as mock_session_class:
             mock_session = AsyncMock()
             mock_response = AsyncMock()
             mock_response.text = AsyncMock(return_value="OK")

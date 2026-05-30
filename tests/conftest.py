@@ -88,8 +88,8 @@ def bridge_private_key():
 
 @pytest.fixture
 def auth_id():
-    """Test auth ID."""
-    return 123456
+    """Test auth ID (as bytes)."""
+    return (123456).to_bytes(4, "little")
 
 
 @pytest.fixture
