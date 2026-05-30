@@ -215,23 +215,40 @@ class NukiManager:
 
                 # If this is a BlueZ stuck state, trigger automatic Bluetooth restart
                 if "InProgress" in str(e):
-                    logger.warning("BlueZ is in a stuck state - triggering automatic Bluetooth restart")
+                    logger.warning("BlueZ is in a stuck state - will forcefully clear and restart")
                     try:
-                        # Try to stop any existing scanner first
-                        try:
-                            logger.debug("Attempting to stop scanner before Bluetooth restart...")
-                            await self._scanner.stop()
-                            await asyncio.sleep(1)
-                        except Exception as stop_err:
-                            logger.debug(f"Could not stop scanner (expected): {stop_err}")
-
-                        # Restart Bluetooth directly (native) or via trigger file (Docker)
+                        # Force stop discovery at D-Bus level before restarting
                         import subprocess
                         import os
 
+                        logger.info("Forcefully stopping D-Bus discovery...")
+                        try:
+                            # Call StopDiscovery on BlueZ D-Bus interface
+                            result = subprocess.run(
+                                [
+                                    "dbus-send",
+                                    "--system",
+                                    "--print-reply",
+                                    f"--dest=org.bluez",
+                                    f"/org/bluez/{self._adapter}",
+                                    "org.bluez.Adapter1.StopDiscovery"
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=5
+                            )
+                            if result.returncode == 0:
+                                logger.info("✅ D-Bus StopDiscovery called successfully")
+                            else:
+                                logger.warning(f"StopDiscovery failed (may already be stopped): {result.stderr}")
+                            await asyncio.sleep(2)
+                        except Exception as dbus_err:
+                            logger.warning(f"Could not call D-Bus StopDiscovery: {dbus_err}")
+
+                        # Restart Bluetooth directly (native) or via trigger file (Docker)
                         if os.path.exists("/opt/raspinukibridge"):
                             # Running natively - restart Bluetooth directly
-                            logger.info("Restarting Bluetooth directly (native mode)...")
+                            logger.info("Restarting Bluetooth service (native mode)...")
                             result = subprocess.run(
                                 ["sudo", "systemctl", "restart", "bluetooth"],
                                 capture_output=True,
@@ -239,7 +256,7 @@ class NukiManager:
                                 timeout=30
                             )
                             if result.returncode == 0:
-                                logger.info("✅ Bluetooth restart command executed successfully")
+                                logger.info("✅ Bluetooth service restarted successfully")
                             else:
                                 logger.error(f"Bluetooth restart failed: {result.stderr}")
                         else:
@@ -248,36 +265,26 @@ class NukiManager:
                             with open("/tmp/nuki-bluetooth-restart-trigger", "w") as f:
                                 f.write(f"{datetime.datetime.now().isoformat()}\n")
 
-                        logger.info("Waiting 15 seconds for Bluetooth to restart and settle...")
-                        await asyncio.sleep(15)  # systemctl restart takes ~11s + 4s for BlueZ init
+                        logger.info("Waiting 20 seconds for Bluetooth service to fully restart...")
+                        await asyncio.sleep(20)  # Increased from 15s to 20s for more reliable restart
 
                         # Recreate scanner object to get fresh D-Bus connection
-                        logger.info("Recreating scanner object to refresh D-Bus connection...")
+                        logger.info("Recreating scanner with fresh D-Bus connection...")
                         old_scanner = self._scanner
                         self._scanner = BleakScanner(adapter=self._adapter)
                         self._scanner.register_detection_callback(self._detected_ibeacon)
                         del old_scanner
-                        await asyncio.sleep(1)  # Let new scanner settle
 
-                        # Try starting scanner again after Bluetooth restart
+                        # Try starting scanner again after full restart
                         try:
                             await self._scanner.start()
                             self._scanner_running = True
-                            logger.info("✅ Scanner started successfully after Bluetooth restart")
+                            logger.info("✅ Scanner started successfully after full restart")
                             return
                         except Exception as retry_err:
-                            logger.error(f"Scanner still failed after Bluetooth restart: {retry_err}")
-                            logger.warning("Waiting 5 more seconds and trying one final time...")
-                            await asyncio.sleep(5)
-                            try:
-                                await self._scanner.start()
-                                self._scanner_running = True
-                                logger.info("✅ Scanner started successfully after extended wait")
-                                return
-                            except Exception as final_err:
-                                logger.error(f"Scanner failed after all attempts: {final_err}")
+                            logger.error(f"Scanner failed after restart: {retry_err}")
                     except Exception as trigger_err:
-                        logger.error(f"Failed to trigger Bluetooth restart: {trigger_err}")
+                        logger.error(f"Failed to restart Bluetooth: {trigger_err}")
 
                 # Don't crash the app - scanner will retry on connect attempts
                 logger.warning("Scanner failed to start. Will retry on next connect attempt.")
