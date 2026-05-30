@@ -18,6 +18,11 @@ while true; do
         # Remove trigger file immediately
         rm -f "$TRIGGER_FILE"
 
+        # Force stop any active discovery sessions before restart
+        log "Stopping active discovery sessions..."
+        dbus-send --system --print-reply --dest=org.bluez /org/bluez/hci0 org.bluez.Adapter1.StopDiscovery 2>/dev/null || true
+        sleep 1
+
         # AGGRESSIVE RESTART: Kill everything Bluetooth-related
         systemctl stop bluetooth
         sleep 1
