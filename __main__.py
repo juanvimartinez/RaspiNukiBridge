@@ -83,6 +83,11 @@ class WebServer:
     async def _newstate(self, nuki):
         logger.info(f"Nuki new state: {nuki.last_state}")
         if any(self._http_callbacks):
+            # Check if device has config loaded (has ID)
+            if not nuki.config or "id" not in nuki.config:
+                logger.debug(f"Skipping callback - device config not yet loaded (address: {nuki.address})")
+                return
+
             async with ClientSession() as session:
                 for url in filter(None, self._http_callbacks):
                     try:
