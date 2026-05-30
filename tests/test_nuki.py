@@ -206,12 +206,14 @@ class TestNukiBLEConnection:
         mock_client.is_connected = False
         mock_client.connect = AsyncMock(return_value=True)
         mock_client.start_notify = AsyncMock()
-        # Make services iterable
-        mock_service = Mock()
-        mock_service.__str__ = Mock(return_value="mock_service")
-        mock_client.services = [mock_service]  # Make it a list so it's iterable
-        mock_client.services.characteristics = Mock()
-        mock_client.services.characteristics.values = Mock(return_value=[])
+
+        # Mock services structure properly
+        mock_characteristics = Mock()
+        mock_characteristics.values = Mock(return_value=[])
+        mock_services = Mock()
+        mock_services.__iter__ = Mock(return_value=iter([Mock(__str__=Mock(return_value="mock_service"))]))
+        mock_services.characteristics = mock_characteristics
+        mock_client.services = mock_services
 
         # Mock manager
         mock_manager = AsyncMock()
@@ -245,10 +247,14 @@ class TestNukiBLEConnection:
             await asyncio.sleep(5)
             return True
         mock_client.connect = slow_connect
-        # Make services iterable
-        mock_service = Mock()
-        mock_service.__str__ = Mock(return_value="mock_service")
-        mock_client.services = [mock_service]
+
+        # Mock services structure properly
+        mock_characteristics = Mock()
+        mock_characteristics.values = Mock(return_value=[])
+        mock_services = Mock()
+        mock_services.__iter__ = Mock(return_value=iter([Mock(__str__=Mock(return_value="mock_service"))]))
+        mock_services.characteristics = mock_characteristics
+        mock_client.services = mock_services
 
         # Mock manager
         mock_manager = AsyncMock()
@@ -304,12 +310,14 @@ class TestNukiBLEConnection:
             return True
         mock_client.connect = slow_connect
         mock_client.start_notify = AsyncMock()
-        # Make services iterable
-        mock_service = Mock()
-        mock_service.__str__ = Mock(return_value="mock_service")
-        mock_client.services = [mock_service]
-        mock_client.services.characteristics = Mock()
-        mock_client.services.characteristics.values = Mock(return_value=[])
+
+        # Mock services structure properly
+        mock_characteristics = Mock()
+        mock_characteristics.values = Mock(return_value=[])
+        mock_services = Mock()
+        mock_services.__iter__ = Mock(return_value=iter([Mock(__str__=Mock(return_value="mock_service"))]))
+        mock_services.characteristics = mock_characteristics
+        mock_client.services = mock_services
 
         # Mock manager
         mock_manager = AsyncMock()
