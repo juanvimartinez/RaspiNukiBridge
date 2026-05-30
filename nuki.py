@@ -200,6 +200,19 @@ class NukiManager:
                 logger.error(f"Failed to start scanner: {e}")
                 self._scanner_running = False
 
+                # Handle "NotReady" by retrying with delay
+                if "NotReady" in str(e):
+                    logger.warning("BlueZ not ready yet - waiting 10 seconds and retrying...")
+                    await asyncio.sleep(10)
+                    try:
+                        await self._scanner.start()
+                        self._scanner_running = True
+                        logger.info("✅ Scanner started successfully after waiting for BlueZ")
+                        return
+                    except Exception as retry_err:
+                        logger.error(f"Scanner still failed after waiting: {retry_err}")
+                        # Fall through to InProgress check
+
                 # If this is a BlueZ stuck state, trigger automatic Bluetooth restart
                 if "InProgress" in str(e):
                     logger.warning("BlueZ is in a stuck state - triggering automatic Bluetooth restart")

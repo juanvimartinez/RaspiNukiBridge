@@ -90,7 +90,32 @@ fi
 echo "✅ Configuration ready"
 echo ""
 
-echo "Step 7/8: Configuring sudo permissions for Bluetooth restart..."
+echo "Step 7/8: Configuring Bluetooth reset service..."
+# Install Bluetooth reset script
+cp bluetooth-reset.sh /usr/local/bin/bluetooth-reset.sh
+chmod +x /usr/local/bin/bluetooth-reset.sh
+
+# Create systemd service for Bluetooth reset
+cat > /etc/systemd/system/bluetooth-reset.service << 'EOF'
+[Unit]
+Description=Bluetooth Module Reset
+After=local-fs.target
+Before=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/bin/bluetooth-reset.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable bluetooth-reset.service
+echo "✅ Bluetooth reset service configured"
+echo ""
+
+echo "Step 8/9: Configuring sudo permissions for Bluetooth restart..."
 cat > /etc/sudoers.d/raspinuki-bluetooth << 'EOF'
 # Allow raspinuki user to restart Bluetooth without password
 raspinuki ALL=(ALL) NOPASSWD: /bin/systemctl restart bluetooth
@@ -100,12 +125,13 @@ chmod 0440 /etc/sudoers.d/raspinuki-bluetooth
 echo "✅ Sudo permissions configured"
 echo ""
 
-echo "Step 8/8: Creating and enabling systemd service..."
+echo "Step 9/9: Creating and enabling systemd service..."
 cat > /etc/systemd/system/raspinukibridge.service << 'EOF'
 [Unit]
 Description=RaspiNukiBridge - Nuki Smart Lock Bridge
-After=network.target bluetooth.service
+After=network.target bluetooth.service bluetooth-reset.service
 Wants=bluetooth.service
+Requires=bluetooth-reset.service
 
 [Service]
 Type=simple
@@ -113,6 +139,7 @@ User=raspinuki
 Group=raspinuki
 WorkingDirectory=/opt/raspinukibridge
 Environment="PATH=/opt/raspinukibridge/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStartPre=/bin/sleep 15
 ExecStart=/opt/raspinukibridge/venv/bin/python3 /opt/raspinukibridge/__main__.py --config /opt/raspinukibridge/config/nuki.yaml
 Restart=always
 RestartSec=10
