@@ -247,19 +247,39 @@ class NukiManager:
 
                         # Restart Bluetooth directly (native) or via trigger file (Docker)
                         if os.path.exists("/opt/raspinukibridge"):
-                            # Running natively - kill bluetoothd process to force clean restart
-                            logger.info("Killing bluetoothd process to clear all state...")
+                            # Running natively - power cycle the Bluetooth adapter at kernel level
+                            logger.info("Power cycling Bluetooth adapter to clear kernel state...")
                             try:
-                                # Kill bluetoothd process
+                                # Stop Bluetooth service first
                                 subprocess.run(
-                                    ["sudo", "pkill", "-9", "bluetoothd"],
+                                    ["sudo", "systemctl", "stop", "bluetooth"],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=10
+                                )
+                                await asyncio.sleep(1)
+
+                                # Power down the adapter
+                                logger.info("Powering down Bluetooth adapter...")
+                                subprocess.run(
+                                    ["sudo", "hciconfig", self._adapter, "down"],
                                     capture_output=True,
                                     text=True,
                                     timeout=5
                                 )
                                 await asyncio.sleep(2)
 
-                                # Now start Bluetooth service (bluetoothd will respawn)
+                                # Power up the adapter
+                                logger.info("Powering up Bluetooth adapter...")
+                                subprocess.run(
+                                    ["sudo", "hciconfig", self._adapter, "up"],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=5
+                                )
+                                await asyncio.sleep(2)
+
+                                # Start Bluetooth service
                                 logger.info("Starting Bluetooth service...")
                                 subprocess.run(
                                     ["sudo", "systemctl", "start", "bluetooth"],
@@ -267,9 +287,9 @@ class NukiManager:
                                     text=True,
                                     timeout=30
                                 )
-                                logger.info("✅ Bluetooth process killed and service restarted")
-                            except Exception as kill_err:
-                                logger.error(f"Failed to kill/restart Bluetooth: {kill_err}")
+                                logger.info("✅ Bluetooth adapter power cycled and service restarted")
+                            except Exception as cycle_err:
+                                logger.error(f"Failed to power cycle adapter: {cycle_err}")
                         else:
                             # Running in Docker - use trigger file for watcher service
                             logger.info("Creating trigger file for watcher service (Docker mode)...")
