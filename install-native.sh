@@ -120,6 +120,10 @@ cat > /etc/sudoers.d/raspinuki-bluetooth << 'EOF'
 # Allow raspinuki user to restart Bluetooth without password
 raspinuki ALL=(ALL) NOPASSWD: /bin/systemctl restart bluetooth
 raspinuki ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart bluetooth
+raspinuki ALL=(ALL) NOPASSWD: /bin/systemctl start bluetooth
+raspinuki ALL=(ALL) NOPASSWD: /usr/bin/systemctl start bluetooth
+raspinuki ALL=(ALL) NOPASSWD: /usr/bin/pkill
+raspinuki ALL=(ALL) NOPASSWD: /bin/pkill
 EOF
 chmod 0440 /etc/sudoers.d/raspinuki-bluetooth
 echo "✅ Sudo permissions configured"

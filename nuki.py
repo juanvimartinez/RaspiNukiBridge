@@ -247,26 +247,37 @@ class NukiManager:
 
                         # Restart Bluetooth directly (native) or via trigger file (Docker)
                         if os.path.exists("/opt/raspinukibridge"):
-                            # Running natively - restart Bluetooth directly
-                            logger.info("Restarting Bluetooth service (native mode)...")
-                            result = subprocess.run(
-                                ["sudo", "systemctl", "restart", "bluetooth"],
-                                capture_output=True,
-                                text=True,
-                                timeout=30
-                            )
-                            if result.returncode == 0:
-                                logger.info("✅ Bluetooth service restarted successfully")
-                            else:
-                                logger.error(f"Bluetooth restart failed: {result.stderr}")
+                            # Running natively - kill bluetoothd process to force clean restart
+                            logger.info("Killing bluetoothd process to clear all state...")
+                            try:
+                                # Kill bluetoothd process
+                                subprocess.run(
+                                    ["sudo", "pkill", "-9", "bluetoothd"],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=5
+                                )
+                                await asyncio.sleep(2)
+
+                                # Now start Bluetooth service (bluetoothd will respawn)
+                                logger.info("Starting Bluetooth service...")
+                                subprocess.run(
+                                    ["sudo", "systemctl", "start", "bluetooth"],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=30
+                                )
+                                logger.info("✅ Bluetooth process killed and service restarted")
+                            except Exception as kill_err:
+                                logger.error(f"Failed to kill/restart Bluetooth: {kill_err}")
                         else:
                             # Running in Docker - use trigger file for watcher service
                             logger.info("Creating trigger file for watcher service (Docker mode)...")
                             with open("/tmp/nuki-bluetooth-restart-trigger", "w") as f:
                                 f.write(f"{datetime.datetime.now().isoformat()}\n")
 
-                        logger.info("Waiting 20 seconds for Bluetooth service to fully restart...")
-                        await asyncio.sleep(20)  # Increased from 15s to 20s for more reliable restart
+                        logger.info("Waiting 20 seconds for Bluetooth to fully initialize...")
+                        await asyncio.sleep(20)
 
                         # Recreate scanner object to get fresh D-Bus connection
                         logger.info("Recreating scanner with fresh D-Bus connection...")
