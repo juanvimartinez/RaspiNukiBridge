@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bluetooth \
     libglib2.0-0 \
     libglib2.0-dev \
+    build-essential \
+    libffi-dev \
+    libsodium-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
