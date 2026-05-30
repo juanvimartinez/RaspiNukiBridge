@@ -28,6 +28,7 @@ apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    python3-dev \
     dbus \
     bluez \
     bluetooth \
@@ -112,7 +113,7 @@ User=raspinuki
 Group=raspinuki
 WorkingDirectory=/opt/raspinukibridge
 Environment="PATH=/opt/raspinukibridge/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/opt/raspinukibridge/venv/bin/python3 /opt/raspinukibridge/nuki.py --config /opt/raspinukibridge/config/nuki.yaml serve
+ExecStart=/opt/raspinukibridge/venv/bin/python3 /opt/raspinukibridge/__main__.py --config /opt/raspinukibridge/config/nuki.yaml
 Restart=always
 RestartSec=10
 

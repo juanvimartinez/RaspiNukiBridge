@@ -204,6 +204,14 @@ class NukiManager:
                 if "InProgress" in str(e):
                     logger.warning("BlueZ is in a stuck state - triggering automatic Bluetooth restart")
                     try:
+                        # Try to stop any existing scanner first
+                        try:
+                            logger.debug("Attempting to stop scanner before Bluetooth restart...")
+                            await self._scanner.stop()
+                            await asyncio.sleep(1)
+                        except Exception as stop_err:
+                            logger.debug(f"Could not stop scanner (expected): {stop_err}")
+
                         # Restart Bluetooth directly (native) or via trigger file (Docker)
                         import subprocess
                         import os
