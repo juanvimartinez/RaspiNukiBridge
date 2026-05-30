@@ -205,21 +205,57 @@ class NukiManager:
             except Exception as e:
                 # Check if scan is already in progress from previous run
                 if "InProgress" in str(e) or "Already" in str(e):
-                    logger.warning(f"Scanner already active in BlueZ (from previous run?), attempting recovery: {e}")
-                    # Force stop the stale scan and restart with our callback
+                    logger.warning(f"Scanner already active in BlueZ (from previous run?), attempting aggressive recovery: {e}")
+
+                    # AGGRESSIVE RECOVERY: Multiple attempts with increasing delays
+                    for attempt in range(3):
+                        try:
+                            # Try to stop any existing scan
+                            await self._scanner.stop()
+                            logger.info(f"Stopped stale scanner (recovery attempt {attempt + 1}/3)")
+
+                            # Wait longer for BlueZ to fully release the scan
+                            # Increase delay with each attempt: 1s, 2s, 3s
+                            delay = (attempt + 1) * 1.0
+                            await asyncio.sleep(delay)
+
+                            # Try starting again
+                            await self._scanner.start()
+                            self._scanner_running = True
+                            logger.info(f"Scanner recovered and restarted successfully (attempt {attempt + 1})")
+                            return  # Success!
+
+                        except Exception as recovery_error:
+                            logger.warning(f"Recovery attempt {attempt + 1}/3 failed: {recovery_error}")
+                            if attempt < 2:
+                                # Wait before next attempt
+                                await asyncio.sleep(1.0)
+
+                    # All recovery attempts failed - NUCLEAR OPTION: Recreate scanner object
+                    logger.error("All recovery attempts failed, recreating scanner object (nuclear option)")
                     try:
-                        await self._scanner.stop()
-                        logger.info("Stopped stale scanner")
-                        # Small delay to let BlueZ settle
-                        await asyncio.sleep(0.5)
-                        # Now try starting again
+                        # Recreate the scanner from scratch
+                        old_scanner = self._scanner
+                        self._scanner = BleakScanner(adapter=self._adapter)
+                        self._scanner.register_detection_callback(self._detected_ibeacon)
+
+                        # Clean up old scanner reference
+                        del old_scanner
+
+                        # Give BlueZ time to settle after object recreation
+                        await asyncio.sleep(2.0)
+
+                        # Try starting the new scanner
                         await self._scanner.start()
                         self._scanner_running = True
-                        logger.info("Scanner restarted successfully after recovery")
-                    except Exception as recovery_error:
-                        logger.error(f"Failed to recover scanner: {recovery_error}")
-                        # Last resort - mark as running and hope callbacks work
-                        self._scanner_running = True
+                        logger.info("Scanner recreated and started successfully (nuclear option succeeded)")
+
+                    except Exception as nuclear_error:
+                        logger.error(f"Nuclear option failed: {nuclear_error}")
+                        # Don't mark as running - it's genuinely broken
+                        self._scanner_running = False
+                        logger.error("Scanner is in broken state. Manual Bluetooth restart may be required.")
+                        raise
                 else:
                     logger.error(f"Failed to start scanner: {e}")
                     raise
@@ -610,7 +646,10 @@ class Nuki:
 
     async def _send_data(self, characteristic, data):
         # Sometimes the connection to the smartlock fails, retry with exponential backoff
-        for attempt in range(self.retry):
+        # For sleeping devices, we need to be more patient
+        max_retries = max(self.retry, 5)  # At least 5 retries for sleeping devices
+
+        for attempt in range(max_retries):
             try:
                 if not self._client or not self._client.is_connected:
                     await self.connect()
@@ -620,17 +659,33 @@ class Nuki:
                 await self._client.write_gatt_char(characteristic, data)
                 return  # Success
             except Exception as exc:
-                logger.error(f"Send data attempt {attempt+1}/{self.retry} failed: {type(exc).__name__}: {exc}")
-                if attempt < self.retry - 1:
-                    # Exponential backoff with jitter
+                logger.error(f"Send data attempt {attempt+1}/{max_retries} failed: {type(exc).__name__}: {exc}")
+
+                # Check if it's a "device not found" error (sleeping device)
+                if "could not be found" in str(exc).lower() or "not found" in str(exc).lower():
+                    if attempt < max_retries - 1:
+                        # Device is likely in sleep mode - wait longer for it to wake up
+                        # The scanner should eventually detect it when it advertises
+                        delay = min(5 + (attempt * 3), 20)  # 5s, 8s, 11s, 14s, 17s, 20s
+                        logger.info(f"Device appears to be sleeping. Waiting {delay}s for device to wake up and advertise...")
+
+                        # Ensure scanner is running to detect when device wakes up
+                        try:
+                            await self.manager.start_scanning()
+                        except Exception as scanner_error:
+                            logger.warning(f"Failed to ensure scanner is running: {scanner_error}")
+
+                        await asyncio.sleep(delay)
+                elif attempt < max_retries - 1:
+                    # Other errors - use exponential backoff with jitter
                     delay = min(2 ** attempt + random.uniform(0, 1), 10)
                     logger.info(f"Retrying in {delay:.1f}s...")
                     await asyncio.sleep(delay)
 
         # All retries exhausted
-        logger.error("All send attempts failed, disconnecting")
+        logger.error(f"All {max_retries} send attempts failed, disconnecting")
         await self.disconnect()
-        raise Exception("Failed to send data after all retries")
+        raise Exception(f"Failed to send data after {max_retries} retries - device may be in deep sleep or out of range")
 
     async def _safe_start_notify(self, *args):
         try:
@@ -682,7 +737,12 @@ class Nuki:
 
             except Exception as e:
                 logger.error(f"Connect failed: {e}")
-                # Ensure scanner restarts on failure
+
+                # If device not found, it's likely sleeping - ensure scanner is actively looking
+                if "could not be found" in str(e).lower() or "not found" in str(e).lower():
+                    logger.warning("Device not found - likely in sleep mode. Ensuring scanner is running to detect wake-up...")
+
+                # Ensure scanner restarts on failure to keep looking for the device
                 await self.manager.start_scanning()
                 raise
             finally:

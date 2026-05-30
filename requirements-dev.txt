@@ -1,0 +1,14 @@
+# Testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# Mocking libraries for aiohttp
+pytest-aiohttp>=1.0.5
+aioresponses>=0.7.4
+
+# Code quality tools
+black>=23.7.0
+flake8>=6.1.0
+mypy>=1.5.0
