@@ -247,49 +247,40 @@ class NukiManager:
 
                         # Restart Bluetooth directly (native) or via trigger file (Docker)
                         if os.path.exists("/opt/raspinukibridge"):
-                            # Running natively - power cycle the Bluetooth adapter at kernel level
-                            logger.info("Power cycling Bluetooth adapter to clear kernel state...")
+                            # Running natively - reload kernel module to force reset hardware
+                            logger.info("Reloading Bluetooth kernel module to reset hardware...")
                             try:
-                                # Stop Bluetooth service first
+                                # Unload btusb kernel module (this will kill bluetoothd)
+                                logger.info("Unloading btusb module...")
                                 subprocess.run(
-                                    ["sudo", "systemctl", "stop", "bluetooth"],
+                                    ["sudo", "modprobe", "-r", "btusb"],
                                     capture_output=True,
                                     text=True,
                                     timeout=10
                                 )
-                                await asyncio.sleep(1)
+                                await asyncio.sleep(3)
 
-                                # Power down the adapter
-                                logger.info("Powering down Bluetooth adapter...")
+                                # Reload btusb kernel module
+                                logger.info("Reloading btusb module...")
                                 subprocess.run(
-                                    ["sudo", "hciconfig", self._adapter, "down"],
+                                    ["sudo", "modprobe", "btusb"],
                                     capture_output=True,
                                     text=True,
-                                    timeout=5
+                                    timeout=10
                                 )
-                                await asyncio.sleep(2)
+                                await asyncio.sleep(3)
 
-                                # Power up the adapter
-                                logger.info("Powering up Bluetooth adapter...")
+                                # Restart Bluetooth service
+                                logger.info("Restarting Bluetooth service...")
                                 subprocess.run(
-                                    ["sudo", "hciconfig", self._adapter, "up"],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=5
-                                )
-                                await asyncio.sleep(2)
-
-                                # Start Bluetooth service
-                                logger.info("Starting Bluetooth service...")
-                                subprocess.run(
-                                    ["sudo", "systemctl", "start", "bluetooth"],
+                                    ["sudo", "systemctl", "restart", "bluetooth"],
                                     capture_output=True,
                                     text=True,
                                     timeout=30
                                 )
-                                logger.info("✅ Bluetooth adapter power cycled and service restarted")
-                            except Exception as cycle_err:
-                                logger.error(f"Failed to power cycle adapter: {cycle_err}")
+                                logger.info("✅ Bluetooth kernel module reloaded and service restarted")
+                            except Exception as reload_err:
+                                logger.error(f"Failed to reload kernel module: {reload_err}")
                         else:
                             # Running in Docker - use trigger file for watcher service
                             logger.info("Creating trigger file for watcher service (Docker mode)...")

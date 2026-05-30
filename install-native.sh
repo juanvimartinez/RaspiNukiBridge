@@ -118,14 +118,10 @@ echo ""
 echo "Step 8/9: Configuring sudo permissions for Bluetooth restart..."
 cat > /etc/sudoers.d/raspinuki-bluetooth << 'EOF'
 # Allow raspinuki user to manage Bluetooth without password
-raspinuki ALL=(ALL) NOPASSWD: /bin/systemctl stop bluetooth
-raspinuki ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop bluetooth
-raspinuki ALL=(ALL) NOPASSWD: /bin/systemctl start bluetooth
-raspinuki ALL=(ALL) NOPASSWD: /usr/bin/systemctl start bluetooth
 raspinuki ALL=(ALL) NOPASSWD: /bin/systemctl restart bluetooth
 raspinuki ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart bluetooth
-raspinuki ALL=(ALL) NOPASSWD: /usr/bin/hciconfig
-raspinuki ALL=(ALL) NOPASSWD: /bin/hciconfig
+raspinuki ALL=(ALL) NOPASSWD: /usr/sbin/modprobe
+raspinuki ALL=(ALL) NOPASSWD: /sbin/modprobe
 EOF
 chmod 0440 /etc/sudoers.d/raspinuki-bluetooth
 echo "✅ Sudo permissions configured"
