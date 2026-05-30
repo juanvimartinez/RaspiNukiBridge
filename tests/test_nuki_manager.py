@@ -208,7 +208,7 @@ class TestNukiManagerScanning:
 
     @pytest.mark.asyncio
     @patch('nuki.subprocess')
-    @patch('nuki.os.path.exists')
+    @patch('os.path.exists')
     @patch('nuki.BleakScanner')
     async def test_start_scanning_recovery_from_stale_state(
         self, mock_scanner_class, mock_path_exists, mock_subprocess
