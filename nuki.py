@@ -207,8 +207,8 @@ class NukiManager:
                         # Create trigger file for the watcher service
                         with open("/tmp/nuki-bluetooth-restart-trigger", "w") as f:
                             f.write(f"{datetime.datetime.now().isoformat()}\n")
-                        logger.info("Bluetooth restart triggered - waiting 15 seconds for restart and settling...")
-                        await asyncio.sleep(15)  # Increased from 10 to 15 seconds
+                        logger.info("Bluetooth restart triggered - waiting 18 seconds for complete restart...")
+                        await asyncio.sleep(18)  # systemctl restart takes ~11s + 7s for BlueZ init
                         # Try starting scanner again after Bluetooth restart
                         try:
                             await self._scanner.start()
@@ -217,7 +217,7 @@ class NukiManager:
                             return
                         except Exception as retry_err:
                             logger.error(f"Scanner still failed after Bluetooth restart: {retry_err}")
-                            logger.warning("Will wait 5 more seconds and try one final time...")
+                            logger.warning("Waiting 5 more seconds and trying one final time...")
                             await asyncio.sleep(5)
                             try:
                                 await self._scanner.start()
