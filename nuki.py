@@ -141,21 +141,15 @@ class NukiManager:
         """Initialize scanner state - stop any existing scans from previous runs"""
         logger.info("Initializing scanner - cleaning up any stale BlueZ state")
 
-        # Try multiple times to stop any existing scan
-        for attempt in range(3):
-            try:
-                await self._scanner.stop()
-                logger.info(f"Stopped existing scanner from previous run (attempt {attempt + 1})")
-                # Wait for BlueZ to fully release the scan
-                await asyncio.sleep(1.0)
-                break
-            except Exception as e:
-                if attempt < 2:
-                    logger.debug(f"Attempt {attempt + 1} to stop scanner: {e}, retrying...")
-                    await asyncio.sleep(0.5)
-                else:
-                    # Last attempt failed - no scan was running (expected on clean start)
-                    logger.debug(f"No existing scan to stop (expected on first/clean run): {e}")
+        # Only try to stop if we suspect a scan might be running
+        # Don't try multiple times - that seems to confuse BlueZ
+        try:
+            await self._scanner.stop()
+            logger.info("Stopped existing scanner from previous run")
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            # This is normal on clean start - no scan was running
+            logger.debug(f"No existing scan to stop (normal on first run): {e}")
 
         # Ensure our state matches reality
         self._scanner_running = False
@@ -205,58 +199,18 @@ class NukiManager:
             except Exception as e:
                 # Check if scan is already in progress from previous run
                 if "InProgress" in str(e) or "Already" in str(e):
-                    logger.warning(f"Scanner already active in BlueZ (from previous run?), attempting aggressive recovery: {e}")
-
-                    # AGGRESSIVE RECOVERY: Multiple attempts with increasing delays
-                    for attempt in range(3):
-                        try:
-                            # Try to stop any existing scan
-                            await self._scanner.stop()
-                            logger.info(f"Stopped stale scanner (recovery attempt {attempt + 1}/3)")
-
-                            # Wait longer for BlueZ to fully release the scan
-                            # Increase delay with each attempt: 1s, 2s, 3s
-                            delay = (attempt + 1) * 1.0
-                            await asyncio.sleep(delay)
-
-                            # Try starting again
-                            await self._scanner.start()
-                            self._scanner_running = True
-                            logger.info(f"Scanner recovered and restarted successfully (attempt {attempt + 1})")
-                            return  # Success!
-
-                        except Exception as recovery_error:
-                            logger.warning(f"Recovery attempt {attempt + 1}/3 failed: {recovery_error}")
-                            if attempt < 2:
-                                # Wait before next attempt
-                                await asyncio.sleep(1.0)
-
-                    # All recovery attempts failed - NUCLEAR OPTION: Recreate scanner object
-                    logger.error("All recovery attempts failed, recreating scanner object (nuclear option)")
+                    logger.warning(f"Scanner already active in BlueZ, trying to stop and restart: {e}")
                     try:
-                        # Recreate the scanner from scratch
-                        old_scanner = self._scanner
-                        self._scanner = BleakScanner(adapter=self._adapter)
-                        self._scanner.register_detection_callback(self._detected_ibeacon)
-
-                        # Clean up old scanner reference
-                        del old_scanner
-
-                        # Give BlueZ time to settle after object recreation
-                        await asyncio.sleep(2.0)
-
-                        # Try starting the new scanner
+                        await self._scanner.stop()
+                        await asyncio.sleep(0.5)
                         await self._scanner.start()
                         self._scanner_running = True
-                        logger.info("Scanner recreated and started successfully (nuclear option succeeded)")
-
-                    except Exception as nuclear_error:
-                        logger.error(f"Nuclear option failed: {nuclear_error}")
-                        # Don't mark as running - it's genuinely broken
+                        logger.info("Scanner restarted successfully after cleanup")
+                    except Exception as restart_error:
+                        logger.error(f"Failed to restart scanner: {restart_error}")
                         self._scanner_running = False
                         logger.warning("Scanner failed to start. Will retry on next connect attempt.")
                         # Don't raise - let the application start anyway
-                        # Scanner will be retried when devices try to connect
                 else:
                     logger.error(f"Failed to start scanner: {e}")
                     self._scanner_running = False
