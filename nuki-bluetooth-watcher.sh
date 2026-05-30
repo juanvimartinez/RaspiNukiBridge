@@ -13,16 +13,30 @@ log "Bluetooth watcher started"
 
 while true; do
     if [ -f "$TRIGGER_FILE" ]; then
-        log "Restart trigger detected, restarting Bluetooth..."
+        log "Restart trigger detected, performing aggressive Bluetooth restart..."
 
-        # Remove trigger file
+        # Remove trigger file immediately
         rm -f "$TRIGGER_FILE"
 
-        # Restart Bluetooth
-        systemctl restart bluetooth
+        # AGGRESSIVE RESTART: Kill everything Bluetooth-related
+        systemctl stop bluetooth
+        sleep 1
+
+        # Kill any remaining bluetoothd processes
+        killall -9 bluetoothd 2>/dev/null || true
+        sleep 1
+
+        # Clear any D-Bus state
+        rm -rf /var/run/bluez/* 2>/dev/null || true
+
+        # Restart Bluetooth service
+        systemctl start bluetooth
 
         if [ $? -eq 0 ]; then
-            log "✅ Bluetooth restarted successfully"
+            log "✅ Bluetooth restarted successfully (aggressive mode)"
+            # Wait for BlueZ to fully initialize
+            sleep 3
+            log "BlueZ settling period complete"
         else
             log "❌ Bluetooth restart failed"
         fi
