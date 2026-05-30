@@ -209,6 +209,15 @@ class NukiManager:
                             f.write(f"{datetime.datetime.now().isoformat()}\n")
                         logger.info("Bluetooth restart triggered - waiting 18 seconds for complete restart...")
                         await asyncio.sleep(18)  # systemctl restart takes ~11s + 7s for BlueZ init
+
+                        # Recreate scanner object to get fresh D-Bus connection
+                        logger.info("Recreating scanner object to refresh D-Bus connection...")
+                        old_scanner = self._scanner
+                        self._scanner = BleakScanner(adapter=self._adapter)
+                        self._scanner.register_detection_callback(self._detected_ibeacon)
+                        del old_scanner
+                        await asyncio.sleep(1)  # Let new scanner settle
+
                         # Try starting scanner again after Bluetooth restart
                         try:
                             await self._scanner.start()
