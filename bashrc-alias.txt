@@ -1,0 +1,3 @@
+# Add this to your ~/.bashrc for easy Bluetooth restart
+
+alias fix-nuki='cd ~/raspinukibridge_docker && docker-compose down && sudo systemctl restart bluetooth && sleep 3 && docker-compose up -d && docker-compose logs -f'

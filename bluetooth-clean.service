@@ -1,0 +1,12 @@
+[Unit]
+Description=Clean Bluetooth state before starting Nuki Bridge
+Before=docker.service
+After=bluetooth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c 'systemctl restart bluetooth && sleep 2'
+
+[Install]
+WantedBy=multi-user.target

@@ -197,25 +197,31 @@ class NukiManager:
                 self._scanner_running = True
                 logger.debug("Scanner started successfully")
             except Exception as e:
-                # Check if scan is already in progress from previous run
-                if "InProgress" in str(e) or "Already" in str(e):
-                    logger.warning(f"Scanner already active in BlueZ, trying to stop and restart: {e}")
+                logger.error(f"Failed to start scanner: {e}")
+                self._scanner_running = False
+
+                # If this is a BlueZ stuck state, trigger automatic Bluetooth restart
+                if "InProgress" in str(e):
+                    logger.warning("BlueZ is in a stuck state - triggering automatic Bluetooth restart")
                     try:
-                        await self._scanner.stop()
-                        await asyncio.sleep(0.5)
-                        await self._scanner.start()
-                        self._scanner_running = True
-                        logger.info("Scanner restarted successfully after cleanup")
-                    except Exception as restart_error:
-                        logger.error(f"Failed to restart scanner: {restart_error}")
-                        self._scanner_running = False
-                        logger.warning("Scanner failed to start. Will retry on next connect attempt.")
-                        # Don't raise - let the application start anyway
-                else:
-                    logger.error(f"Failed to start scanner: {e}")
-                    self._scanner_running = False
-                    logger.warning("Scanner failed to start. Will retry on next connect attempt.")
-                    # Don't raise - let the application start anyway
+                        # Create trigger file for the watcher service
+                        with open("/tmp/nuki-bluetooth-restart-trigger", "w") as f:
+                            f.write(f"{datetime.datetime.now().isoformat()}\n")
+                        logger.info("Bluetooth restart triggered - waiting 10 seconds for restart...")
+                        await asyncio.sleep(10)
+                        # Try starting scanner again after Bluetooth restart
+                        try:
+                            await self._scanner.start()
+                            self._scanner_running = True
+                            logger.info("✅ Scanner started successfully after Bluetooth restart")
+                            return
+                        except Exception as retry_err:
+                            logger.error(f"Scanner still failed after Bluetooth restart: {retry_err}")
+                    except Exception as trigger_err:
+                        logger.error(f"Failed to trigger Bluetooth restart: {trigger_err}")
+
+                # Don't crash the app - scanner will retry on connect attempts
+                logger.warning("Scanner failed to start. Will retry on next connect attempt.")
 
     async def stop_scanning(self):
         async with self._scanner_lock:

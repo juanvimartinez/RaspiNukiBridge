@@ -16,3 +16,4 @@ services:
       - ./config:/config
       - /run/dbus:/run/dbus:ro
       - /var/run/dbus:/var/run/dbus:ro  # Some systems use this path
+      - /tmp:/tmp  # Allow container to create trigger file
