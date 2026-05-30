@@ -204,11 +204,31 @@ class NukiManager:
                 if "InProgress" in str(e):
                     logger.warning("BlueZ is in a stuck state - triggering automatic Bluetooth restart")
                     try:
-                        # Create trigger file for the watcher service
-                        with open("/tmp/nuki-bluetooth-restart-trigger", "w") as f:
-                            f.write(f"{datetime.datetime.now().isoformat()}\n")
-                        logger.info("Bluetooth restart triggered - waiting 18 seconds for complete restart...")
-                        await asyncio.sleep(18)  # systemctl restart takes ~11s + 7s for BlueZ init
+                        # Restart Bluetooth directly (native) or via trigger file (Docker)
+                        import subprocess
+                        import os
+
+                        if os.path.exists("/opt/raspinukibridge"):
+                            # Running natively - restart Bluetooth directly
+                            logger.info("Restarting Bluetooth directly (native mode)...")
+                            result = subprocess.run(
+                                ["sudo", "systemctl", "restart", "bluetooth"],
+                                capture_output=True,
+                                text=True,
+                                timeout=30
+                            )
+                            if result.returncode == 0:
+                                logger.info("✅ Bluetooth restart command executed successfully")
+                            else:
+                                logger.error(f"Bluetooth restart failed: {result.stderr}")
+                        else:
+                            # Running in Docker - use trigger file for watcher service
+                            logger.info("Creating trigger file for watcher service (Docker mode)...")
+                            with open("/tmp/nuki-bluetooth-restart-trigger", "w") as f:
+                                f.write(f"{datetime.datetime.now().isoformat()}\n")
+
+                        logger.info("Waiting 15 seconds for Bluetooth to restart and settle...")
+                        await asyncio.sleep(15)  # systemctl restart takes ~11s + 4s for BlueZ init
 
                         # Recreate scanner object to get fresh D-Bus connection
                         logger.info("Recreating scanner object to refresh D-Bus connection...")
