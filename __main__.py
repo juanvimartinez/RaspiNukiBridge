@@ -319,6 +319,9 @@ if __name__ == "__main__":
             # Register shutdown handler for clean cleanup
             async def shutdown(sig):
                 logger.info(f"Received signal {sig}, shutting down...")
+                # Stop health monitor first
+                await nuki_manager.stop_health_monitor()
+                # Then cleanup devices
                 for nuki in nuki_manager.device_list:
                     await nuki.cleanup()
                 await nuki_manager.stop_scanning()
