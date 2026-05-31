@@ -189,10 +189,10 @@ class NukiManager:
                 capture_output=True,
                 timeout=3
             )
-            # Wait longer for adapter to fully stabilize
-            logger.info("⏳ Waiting 5 seconds for Bluetooth adapter to stabilize...")
-            await asyncio.sleep(5)
-            logger.debug("✅ Bluetooth adapter power cycled and stabilized")
+            # Wait for BlueZ to fully initialize the adapter
+            logger.info("⏳ Waiting 10 seconds for Bluetooth adapter to stabilize...")
+            await asyncio.sleep(10)
+            logger.info("✅ Bluetooth adapter power cycled and stabilized")
         except Exception as e:
             logger.warning(f"Could not power cycle adapter (may not be necessary): {e}")
 
@@ -486,19 +486,25 @@ class NukiManager:
                 logger.error(f"Failed to start scanner: {e}")
                 self._scanner_running = False
 
-                # Handle "NotReady" by retrying with delay
+                # Handle "NotReady" by retrying with delay (up to 3 times)
                 if "NotReady" in str(e):
-                    logger.warning("BlueZ not ready yet - waiting 10 seconds and retrying...")
-                    await asyncio.sleep(10)
-                    try:
-                        await self._scanner.start()
-                        self._scanner_running = True
-                        self._connection_failure_count = 0  # Reset on success
-                        logger.info("✅ Scanner started successfully after waiting for BlueZ")
-                        return
-                    except Exception as retry_err:
-                        logger.error(f"Scanner still failed after waiting: {retry_err}")
-                        # Fall through to nuclear reset check
+                    for attempt in range(1, 4):
+                        logger.warning(f"BlueZ not ready yet - waiting 10 seconds and retrying (attempt {attempt}/3)...")
+                        await asyncio.sleep(10)
+                        try:
+                            await self._scanner.start()
+                            self._scanner_running = True
+                            self._connection_failure_count = 0  # Reset on success
+                            logger.info("✅ Scanner started successfully after waiting for BlueZ")
+                            return
+                        except Exception as retry_err:
+                            logger.error(f"Scanner still failed (attempt {attempt}/3): {retry_err}")
+                            if "NotReady" not in str(retry_err):
+                                break  # Different error, stop retrying
+                    # All retries failed - trigger nuclear reset
+                    logger.error("BlueZ still not ready after 3 attempts - triggering nuclear reset")
+                    await self._nuclear_bluetooth_reset()
+                    return
 
                 # If this is a BlueZ stuck state, trigger nuclear reset
                 if "InProgress" in str(e):
