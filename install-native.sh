@@ -140,7 +140,6 @@ User=raspinuki
 Group=raspinuki
 WorkingDirectory=/opt/raspinukibridge
 Environment="PATH=/opt/raspinukibridge/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStartPre=/bin/sleep 15
 ExecStart=/opt/raspinukibridge/venv/bin/python3 /opt/raspinukibridge/__main__.py --config /opt/raspinukibridge/config/nuki.yaml
 Restart=always
 RestartSec=10

@@ -143,64 +143,77 @@ class NukiManager:
         self._scanner_stale_count = 0  # Track how many checks with no device seen
 
     async def initialize(self):
-        """Initialize scanner state - stop any existing scans from previous runs"""
-        logger.info("Initializing scanner - cleaning up any stale BlueZ state")
-
-        # Step 1: Force disconnect any lingering connections at D-Bus level
+        """Initialize Bluetooth with a clean reset to ensure reliable startup"""
         import subprocess
-        logger.debug("Forcing BlueZ adapter reset...")
-        try:
-            # Remove all devices connected to this adapter to clear stale state
-            result = subprocess.run(
-                [
-                    "bash", "-c",
-                    f"for dev in $(bluetoothctl devices Connected | cut -d' ' -f2); do bluetoothctl disconnect $dev 2>/dev/null; done"
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            logger.debug("Disconnected any lingering Bluetooth devices")
-        except Exception as e:
-            logger.debug(f"Could not disconnect lingering devices: {e}")
 
-        # Step 2: Stop any existing scan
-        try:
-            await self._scanner.stop()
-            logger.info("Stopped existing scanner from previous run")
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            # This is normal on clean start - no scan was running
-            logger.debug(f"No existing scan to stop (normal on first run): {e}")
+        logger.info("🚀 Initializing Bluetooth with clean reset...")
 
-        # Step 3: Power cycle the adapter to clear any stuck state
+        # Do a full Bluetooth reset on startup to ensure clean state
+        # This is faster than trying soft methods that often fail
+
+        # Step 1: Unload btusb kernel module
+        logger.info("Unloading btusb module...")
         try:
-            logger.debug("Power cycling Bluetooth adapter...")
-            # Power off
             subprocess.run(
-                ["sudo", "hciconfig", self._adapter, "down"],
+                ["sudo", "modprobe", "-r", "btusb"],
                 capture_output=True,
-                timeout=3
+                timeout=10
             )
-            await asyncio.sleep(1)
-            # Power on
+        except Exception as e:
+            logger.warning(f"Could not unload btusb: {e}")
+        await asyncio.sleep(2)
+
+        # Step 2: Reload btusb kernel module
+        logger.info("Reloading btusb module...")
+        try:
+            subprocess.run(
+                ["sudo", "modprobe", "btusb"],
+                capture_output=True,
+                timeout=10
+            )
+        except Exception as e:
+            logger.warning(f"Could not reload btusb: {e}")
+        await asyncio.sleep(2)
+
+        # Step 3: Restart Bluetooth service
+        logger.info("Restarting Bluetooth service...")
+        try:
+            subprocess.run(
+                ["sudo", "systemctl", "restart", "bluetooth"],
+                capture_output=True,
+                timeout=30
+            )
+        except Exception as e:
+            logger.warning(f"Could not restart bluetooth: {e}")
+        await asyncio.sleep(2)
+
+        # Step 4: Power up the adapter
+        logger.info("Powering up Bluetooth adapter...")
+        try:
             subprocess.run(
                 ["sudo", "hciconfig", self._adapter, "up"],
                 capture_output=True,
-                timeout=3
+                timeout=5
             )
-            # Wait for BlueZ to fully initialize the adapter
-            logger.info("⏳ Waiting 10 seconds for Bluetooth adapter to stabilize...")
-            await asyncio.sleep(10)
-            logger.info("✅ Bluetooth adapter power cycled and stabilized")
         except Exception as e:
-            logger.warning(f"Could not power cycle adapter (may not be necessary): {e}")
+            logger.warning(f"Could not power up adapter: {e}")
 
-        # Ensure our state matches reality
+        # Step 5: Wait for BlueZ D-Bus to be ready
+        logger.info("⏳ Waiting 15 seconds for BlueZ to initialize...")
+        await asyncio.sleep(15)
+
+        # Step 6: Recreate scanner with fresh D-Bus connection
+        logger.info("Creating scanner with fresh D-Bus connection...")
+        self._scanner = BleakScanner(adapter=self._adapter)
+        self._scanner.register_detection_callback(self._detected_ibeacon)
+
+        # Reset state
         self._scanner_running = False
-        self._connection_failure_count = 0  # Reset failure counter on initialization
-        self._health_check_failure_count = 0  # Reset health check counter
-        logger.debug("Scanner initialization complete")
+        self._connection_failure_count = 0
+        self._health_check_failure_count = 0
+        self._scanner_stale_count = 0
+
+        logger.info("✅ Bluetooth initialization complete")
 
         # Start the background health monitor
         self.start_health_monitor()
@@ -486,34 +499,14 @@ class NukiManager:
                 logger.error(f"Failed to start scanner: {e}")
                 self._scanner_running = False
 
-                # Handle "NotReady" by retrying with delay (up to 3 times)
-                if "NotReady" in str(e):
-                    for attempt in range(1, 4):
-                        logger.warning(f"BlueZ not ready yet - waiting 10 seconds and retrying (attempt {attempt}/3)...")
-                        await asyncio.sleep(10)
-                        try:
-                            await self._scanner.start()
-                            self._scanner_running = True
-                            self._connection_failure_count = 0  # Reset on success
-                            logger.info("✅ Scanner started successfully after waiting for BlueZ")
-                            return
-                        except Exception as retry_err:
-                            logger.error(f"Scanner still failed (attempt {attempt}/3): {retry_err}")
-                            if "NotReady" not in str(retry_err):
-                                break  # Different error, stop retrying
-                    # All retries failed - trigger nuclear reset
-                    logger.error("BlueZ still not ready after 3 attempts - triggering nuclear reset")
+                # Any scanner failure triggers nuclear reset - fast recovery
+                if "InProgress" in str(e) or "NotReady" in str(e):
+                    logger.warning(f"BlueZ error detected ({e}) - triggering nuclear reset")
                     await self._nuclear_bluetooth_reset()
-                    return
-
-                # If this is a BlueZ stuck state, trigger nuclear reset
-                if "InProgress" in str(e):
-                    logger.warning("BlueZ is in a stuck state - triggering nuclear reset")
+                else:
+                    # Unknown error - still try nuclear reset
+                    logger.warning("Scanner failed with unknown error. Triggering nuclear reset...")
                     await self._nuclear_bluetooth_reset()
-                    return
-
-                # Don't crash the app - scanner will retry on connect attempts
-                logger.warning("Scanner failed to start. Will retry on next connect attempt.")
 
     async def stop_scanning(self):
         async with self._scanner_lock:
