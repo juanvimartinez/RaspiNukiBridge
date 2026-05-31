@@ -16,8 +16,12 @@ from nuki import Nuki, NukiManager, NukiClientType, DeviceType
 class TestNukiManagerInitialization:
     """Test NukiManager initialization."""
 
-    def test_manager_init(self):
+    @patch('nuki.BleakScanner')
+    def test_manager_init(self, mock_scanner_class):
         """Test NukiManager initialization with default parameters."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123456)
 
         assert manager.name == "TestBridge"
@@ -28,9 +32,16 @@ class TestNukiManagerInitialization:
         assert manager._scanner is not None
         assert manager._scanner_running is False
         assert manager._newstate_callback is None
+        assert manager._connection_failure_count == 0
+        assert manager._health_check_failure_count == 0
+        assert manager._health_check_task is None
 
-    def test_manager_init_custom_adapter(self):
+    @patch('nuki.BleakScanner')
+    def test_manager_init_custom_adapter(self, mock_scanner_class):
         """Test NukiManager with custom Bluetooth adapter."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=999, adapter="hci1")
 
         assert manager._adapter == "hci1"
@@ -53,8 +64,12 @@ class TestNukiManagerInitialization:
 class TestNukiManagerDeviceManagement:
     """Test device registration and lookup."""
 
-    def test_add_nuki_device(self):
+    @patch('nuki.BleakScanner')
+    def test_add_nuki_device(self, mock_scanner_class):
         """Test adding a Nuki device to manager."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         mock_nuki = Mock(spec=Nuki)
@@ -66,8 +81,12 @@ class TestNukiManagerDeviceManagement:
         assert manager._devices[mock_nuki.address] == mock_nuki
         assert mock_nuki.manager == manager
 
-    def test_add_multiple_devices(self):
+    @patch('nuki.BleakScanner')
+    def test_add_multiple_devices(self, mock_scanner_class):
         """Test adding multiple devices."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         nuki1 = Mock(spec=Nuki)
@@ -83,8 +102,12 @@ class TestNukiManagerDeviceManagement:
         assert nuki1.address in manager._devices
         assert nuki2.address in manager._devices
 
-    def test_nuki_by_id_lookup(self):
+    @patch('nuki.BleakScanner')
+    def test_nuki_by_id_lookup(self, mock_scanner_class):
         """Test device lookup by Nuki ID."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         nuki1 = Mock(spec=Nuki)
@@ -102,8 +125,12 @@ class TestNukiManagerDeviceManagement:
         found = manager.nuki_by_id(222222)
         assert found == nuki2
 
-    def test_nuki_by_id_not_found(self):
+    @patch('nuki.BleakScanner')
+    def test_nuki_by_id_not_found(self, mock_scanner_class):
         """Test device lookup with non-existent ID raises StopIteration."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         nuki = Mock(spec=Nuki)
@@ -114,8 +141,12 @@ class TestNukiManagerDeviceManagement:
         with pytest.raises(StopIteration):
             manager.nuki_by_id(999999)  # Non-existent ID
 
-    def test_device_list_property(self):
+    @patch('nuki.BleakScanner')
+    def test_device_list_property(self, mock_scanner_class):
         """Test device_list property returns all devices."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         nuki1 = Mock(spec=Nuki)
@@ -132,8 +163,12 @@ class TestNukiManagerDeviceManagement:
         assert nuki1 in device_list
         assert nuki2 in device_list
 
-    def test_manager_getitem(self):
+    @patch('nuki.BleakScanner')
+    def test_manager_getitem(self, mock_scanner_class):
         """Test indexing manager like a list."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         nuki1 = Mock(spec=Nuki)
@@ -278,8 +313,12 @@ class TestNukiManagerScanning:
 class TestNukiManagerCallbacks:
     """Test newstate callback mechanism."""
 
-    def test_newstate_callback_property(self):
+    @patch('nuki.BleakScanner')
+    def test_newstate_callback_property(self, mock_scanner_class):
         """Test newstate_callback getter/setter."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         assert manager.newstate_callback is None
@@ -290,8 +329,12 @@ class TestNukiManagerCallbacks:
         assert manager.newstate_callback == callback
 
     @pytest.mark.asyncio
-    async def test_nuki_newstate_invokes_callback(self):
+    @patch('nuki.BleakScanner')
+    async def test_nuki_newstate_invokes_callback(self, mock_scanner_class):
         """Test that nuki_newstate invokes registered callback."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         callback = AsyncMock()
@@ -303,8 +346,12 @@ class TestNukiManagerCallbacks:
         callback.assert_called_once_with(mock_nuki)
 
     @pytest.mark.asyncio
-    async def test_nuki_newstate_no_callback(self):
+    @patch('nuki.BleakScanner')
+    async def test_nuki_newstate_no_callback(self, mock_scanner_class):
         """Test nuki_newstate when no callback is registered."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
         manager._newstate_callback = None
 
@@ -316,8 +363,12 @@ class TestNukiManagerCallbacks:
 class TestNukiManagerIterator:
     """Test manager iteration over devices."""
 
-    def test_manager_iteration(self):
+    @patch('nuki.BleakScanner')
+    def test_manager_iteration(self, mock_scanner_class):
         """Test iterating over manager yields devices."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         nuki1 = Mock(spec=Nuki)
@@ -335,8 +386,12 @@ class TestNukiManagerIterator:
         assert nuki1 in devices
         assert nuki2 in devices
 
-    def test_manager_empty_iteration(self):
+    @patch('nuki.BleakScanner')
+    def test_manager_empty_iteration(self, mock_scanner_class):
         """Test iterating over manager with no devices."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123)
 
         devices = list(manager.device_list)
@@ -346,9 +401,13 @@ class TestNukiManagerIterator:
 class TestNukiManagerClientCreation:
     """Test BleakClient creation."""
 
+    @patch('nuki.BleakScanner')
     @patch('nuki.BleakClient')
-    def test_get_client_default(self, mock_client_class):
+    def test_get_client_default(self, mock_client_class, mock_scanner_class):
         """Test get_client creates BleakClient with correct parameters."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123, adapter="hci0")
 
         address = "aa:bb:cc:dd:ee:ff"
@@ -360,9 +419,13 @@ class TestNukiManagerClientCreation:
             timeout=None
         )
 
+    @patch('nuki.BleakScanner')
     @patch('nuki.BleakClient')
-    def test_get_client_with_timeout(self, mock_client_class):
+    def test_get_client_with_timeout(self, mock_client_class, mock_scanner_class):
         """Test get_client with custom timeout."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
         manager = NukiManager(name="TestBridge", app_id=123, adapter="hci1")
 
         address = "11:22:33:44:55:66"
