@@ -187,8 +187,10 @@ class NukiManager:
                 capture_output=True,
                 timeout=3
             )
-            await asyncio.sleep(2)
-            logger.debug("✅ Bluetooth adapter power cycled")
+            # Wait longer for adapter to fully stabilize
+            logger.info("⏳ Waiting 5 seconds for Bluetooth adapter to stabilize...")
+            await asyncio.sleep(5)
+            logger.debug("✅ Bluetooth adapter power cycled and stabilized")
         except Exception as e:
             logger.warning(f"Could not power cycle adapter (may not be necessary): {e}")
 
