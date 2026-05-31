@@ -303,9 +303,10 @@ class NukiManager:
 
                 # Only check if scanner should be running (i.e., we're operational)
                 if not self._scanner_running:
+                    logger.debug("Health check skipped - scanner not running")
                     continue
 
-                logger.debug("Running Bluetooth hardware health check...")
+                logger.info("⏱️  Running Bluetooth hardware health check...")
                 is_healthy = await self._check_bluetooth_health()
 
                 if is_healthy:
@@ -313,6 +314,7 @@ class NukiManager:
                     if self._health_check_failure_count > 0:
                         logger.info(f"✅ Bluetooth hardware recovered (was failing {self._health_check_failure_count} times)")
                     self._health_check_failure_count = 0
+                    logger.info("✅ Bluetooth hardware is healthy")
                 else:
                     # Hardware not responding
                     self._health_check_failure_count += 1
