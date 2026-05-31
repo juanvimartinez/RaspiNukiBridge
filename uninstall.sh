@@ -1,17 +1,17 @@
 #!/bin/bash
-# Uninstallation script for native RaspiNukiBridge deployment
+# Uninstallation script for RaspiNukiBridge
 
 set -e  # Exit on error
 
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  RaspiNukiBridge - Native Uninstallation                 ║"
+echo "║  RaspiNukiBridge - Uninstallation                        ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
     echo "❌ Error: Please run with sudo"
-    echo "Usage: sudo ./uninstall-native.sh"
+    echo "Usage: sudo ./uninstall.sh"
     exit 1
 fi
 
@@ -120,10 +120,10 @@ echo "╔═══════════════════════�
 echo "║  Uninstallation Complete! ✅                             ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
-echo "RaspiNukiBridge native installation has been removed."
+echo "RaspiNukiBridge has been removed."
 echo ""
 echo "Note: System packages (Python3, BlueZ, etc.) were not removed"
 echo "      as they may be used by other applications."
 echo ""
-echo "To reinstall: sudo ./install-native.sh"
+echo "To reinstall: sudo ./install.sh"
 echo ""

@@ -141,6 +141,7 @@ class NukiManager:
         self._health_check_failure_count = 0  # Track consecutive health check failures
         self._last_device_seen_time = None  # Track when we last saw any BLE device
         self._scanner_stale_count = 0  # Track how many checks with no device seen
+        self._scanner_created_time = datetime.datetime.now()  # Track when scanner was created
 
     async def initialize(self):
         """Initialize Bluetooth with a clean reset to ensure reliable startup"""
@@ -206,6 +207,7 @@ class NukiManager:
         logger.info("Creating scanner with fresh D-Bus connection...")
         self._scanner = BleakScanner(adapter=self._adapter)
         self._scanner.register_detection_callback(self._detected_ibeacon)
+        self._scanner_created_time = datetime.datetime.now()
 
         # Reset state
         self._scanner_running = False
@@ -250,7 +252,7 @@ class NukiManager:
         except Exception as dbus_err:
             logger.warning(f"Could not call D-Bus StopDiscovery: {dbus_err}")
 
-        # Reload kernel module to force reset hardware (native deployment)
+        # Reload kernel module to force reset hardware
         logger.info("🔄 Reloading Bluetooth kernel module to reset hardware...")
         try:
             # First power down the adapter
@@ -314,13 +316,13 @@ class NukiManager:
 
         logger.info("Waiting 20 seconds for Bluetooth to fully initialize...")
         await asyncio.sleep(20)
-        await asyncio.sleep(20)
 
         # Recreate scanner object to get fresh D-Bus connection
         logger.info("Recreating scanner with fresh D-Bus connection...")
         old_scanner = self._scanner
         self._scanner = BleakScanner(adapter=self._adapter)
         self._scanner.register_detection_callback(self._detected_ibeacon)
+        self._scanner_created_time = datetime.datetime.now()
         del old_scanner
 
         # Try starting scanner again after full restart
@@ -412,20 +414,71 @@ class NukiManager:
 
                         if self._scanner_stale_count >= 3:
                             logger.error("🔴 PROACTIVE DETECTION: Scanner stale - no BLE devices seen for too long")
-                            logger.error("Restarting scanner to recover...")
+                            logger.error("Recreating scanner with fresh D-Bus connection...")
                             self._scanner_stale_count = 0
-                            # Try to restart scanner first, if that fails, nuclear reset
+
+                            # Recreate the scanner object - the old one has a stale D-Bus connection
                             try:
-                                await self.stop_scanning()
+                                # Stop old scanner
+                                async with self._scanner_lock:
+                                    try:
+                                        await self._scanner.stop()
+                                    except Exception as stop_err:
+                                        logger.warning(f"Old scanner stop error (ignored): {stop_err}")
+                                    self._scanner_running = False
+
                                 await asyncio.sleep(2)
-                                await self.start_scanning()
-                                logger.info("✅ Scanner restarted due to staleness")
+
+                                # Create fresh scanner with new D-Bus connection
+                                old_scanner = self._scanner
+                                self._scanner = BleakScanner(adapter=self._adapter)
+                                self._scanner.register_detection_callback(self._detected_ibeacon)
+                                self._scanner_created_time = datetime.datetime.now()
+                                del old_scanner
+
+                                # Start the fresh scanner
+                                async with self._scanner_lock:
+                                    await self._scanner.start()
+                                    self._scanner_running = True
+
+                                logger.info("✅ Scanner recreated with fresh D-Bus connection")
                             except Exception as restart_err:
-                                logger.error(f"Scanner restart failed: {restart_err}, triggering nuclear reset")
+                                logger.error(f"Scanner recreation failed: {restart_err}, triggering nuclear reset")
                                 await self._nuclear_bluetooth_reset()
                     else:
                         # Device seen recently, scanner is working
                         self._scanner_stale_count = 0
+
+                # Preventive scanner refresh every 30 minutes to avoid D-Bus connection staleness
+                scanner_age = (datetime.datetime.now() - self._scanner_created_time).total_seconds()
+                if scanner_age > 1800 and self._scanner_running:  # 30 minutes
+                    logger.info(f"🔄 Preventive scanner refresh (age: {int(scanner_age)}s)")
+                    try:
+                        async with self._scanner_lock:
+                            try:
+                                await self._scanner.stop()
+                            except Exception as stop_err:
+                                logger.debug(f"Scanner stop during refresh: {stop_err}")
+                            self._scanner_running = False
+
+                        await asyncio.sleep(1)
+
+                        # Create fresh scanner
+                        old_scanner = self._scanner
+                        self._scanner = BleakScanner(adapter=self._adapter)
+                        self._scanner.register_detection_callback(self._detected_ibeacon)
+                        self._scanner_created_time = datetime.datetime.now()
+                        del old_scanner
+
+                        async with self._scanner_lock:
+                            await self._scanner.start()
+                            self._scanner_running = True
+
+                        logger.info("✅ Preventive scanner refresh completed")
+                    except Exception as refresh_err:
+                        logger.warning(f"Preventive scanner refresh failed: {refresh_err}")
+                        # Don't trigger nuclear reset for preventive refresh failure
+                        # The staleness detection will catch it if there's a real problem
 
             except asyncio.CancelledError:
                 logger.info("Health monitor task cancelled")

@@ -193,20 +193,23 @@ class TestNukiManagerScanning:
 
     @pytest.mark.asyncio
     @patch('nuki.BleakScanner')
-    async def test_initialize_cleans_stale_state(self, mock_scanner_class):
-        """Test initialize() stops existing scans."""
+    async def test_initialize_does_bluetooth_reset(self, mock_scanner_class):
+        """Test initialize() does a full Bluetooth reset and creates fresh scanner."""
         mock_scanner = AsyncMock()
         mock_scanner.stop = AsyncMock()
         mock_scanner_class.return_value = mock_scanner
 
         manager = NukiManager(name="TestBridge", app_id=123)
-        manager._scanner = mock_scanner
 
-        await manager.initialize()
+        # Mock subprocess to avoid actual system calls
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(returncode=0, stderr='')
+            await manager.initialize()
 
-        # Should attempt to stop scanner
-        assert mock_scanner.stop.called
+        # initialize() creates a fresh scanner, resets state
         assert manager._scanner_running is False
+        assert manager._connection_failure_count == 0
+        assert manager._health_check_failure_count == 0
 
     @pytest.mark.asyncio
     @patch('nuki.BleakScanner')
@@ -454,6 +457,7 @@ class TestDetectedIBeaconCallback:
         mock_nuki.set_ble_device = Mock()
         mock_nuki.update_state = AsyncMock()
         mock_nuki.get_config = AsyncMock()
+        mock_nuki._user_command_in_progress = False  # Required for iBeacon callback
 
         manager.add_nuki(mock_nuki)
 
@@ -515,6 +519,213 @@ class TestDetectedIBeaconCallback:
 
         # Should not call set_ble_device (ignored)
         mock_nuki.set_ble_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_detected_ibeacon_skips_update_when_user_command_in_progress(self):
+        """Test that iBeacon callback skips update_state when user command is in progress."""
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        mock_nuki = AsyncMock(spec=Nuki)
+        mock_nuki.address = "aa:bb:cc:dd:ee:ff"
+        mock_nuki.device_type = DeviceType.SMARTLOCK_1_2
+        mock_nuki.last_state = None  # Would normally trigger update_state
+        mock_nuki.config = {"id": 12345}
+        mock_nuki.set_ble_device = Mock()
+        mock_nuki.update_state = AsyncMock()
+        mock_nuki._user_command_in_progress = True  # User command in progress
+
+        manager.add_nuki(mock_nuki)
+
+        mock_device = Mock()
+        mock_device.address = "AA:BB:CC:DD:EE:FF"
+        mock_device.rssi = -65
+
+        mock_adv_data = Mock()
+        mock_adv_data.manufacturer_data = {
+            76: bytes([0x02] + [0x00] * 23)
+        }
+
+        await manager._detected_ibeacon(mock_device, mock_adv_data)
+
+        # Device should be updated but update_state should NOT be called
+        mock_nuki.set_ble_device.assert_called_once()
+        mock_nuki.update_state.assert_not_called()
+
+
+class TestNukiManagerHealthMonitor:
+    """Test health monitoring functionality."""
+
+    @pytest.mark.asyncio
+    @patch('nuki.BleakScanner')
+    async def test_start_health_monitor(self, mock_scanner_class):
+        """Test starting the health monitor."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        assert manager._health_check_task is None
+
+        manager.start_health_monitor()
+
+        assert manager._health_check_task is not None
+        assert not manager._health_check_task.done()
+
+        # Cleanup
+        manager._health_check_task.cancel()
+        try:
+            await manager._health_check_task
+        except asyncio.CancelledError:
+            pass
+
+    @pytest.mark.asyncio
+    @patch('nuki.BleakScanner')
+    async def test_start_health_monitor_already_running(self, mock_scanner_class):
+        """Test that starting health monitor twice doesn't create duplicate tasks."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        manager.start_health_monitor()
+        first_task = manager._health_check_task
+
+        manager.start_health_monitor()
+        second_task = manager._health_check_task
+
+        # Should be the same task
+        assert first_task is second_task
+
+        # Cleanup
+        manager._health_check_task.cancel()
+        try:
+            await manager._health_check_task
+        except asyncio.CancelledError:
+            pass
+
+    @pytest.mark.asyncio
+    @patch('nuki.BleakScanner')
+    async def test_stop_health_monitor(self, mock_scanner_class):
+        """Test stopping the health monitor."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        manager.start_health_monitor()
+        assert manager._health_check_task is not None
+
+        await manager.stop_health_monitor()
+
+        assert manager._health_check_task is None
+
+    @pytest.mark.asyncio
+    @patch('nuki.BleakScanner')
+    async def test_stop_health_monitor_when_not_running(self, mock_scanner_class):
+        """Test stopping health monitor when it's not running."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        # Should not raise exception
+        await manager.stop_health_monitor()
+
+        assert manager._health_check_task is None
+
+
+class TestNukiManagerScannerTracking:
+    """Test scanner creation time tracking."""
+
+    @patch('nuki.BleakScanner')
+    def test_scanner_created_time_initialized(self, mock_scanner_class):
+        """Test that scanner creation time is set on init."""
+        import datetime
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
+        before = datetime.datetime.now()
+        manager = NukiManager(name="TestBridge", app_id=123)
+        after = datetime.datetime.now()
+
+        assert manager._scanner_created_time is not None
+        assert before <= manager._scanner_created_time <= after
+
+    @patch('nuki.BleakScanner')
+    def test_last_device_seen_time_initially_none(self, mock_scanner_class):
+        """Test that last device seen time is None initially."""
+        mock_scanner = Mock()
+        mock_scanner_class.return_value = mock_scanner
+
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        assert manager._last_device_seen_time is None
+
+    @pytest.mark.asyncio
+    async def test_detected_ibeacon_updates_last_seen_time(self):
+        """Test that detecting a device updates last_device_seen_time."""
+        import datetime
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        mock_nuki = AsyncMock(spec=Nuki)
+        mock_nuki.address = "aa:bb:cc:dd:ee:ff"
+        mock_nuki.device_type = DeviceType.SMARTLOCK_1_2
+        mock_nuki.last_state = {"lock_state": "LOCKED"}
+        mock_nuki.config = {"id": 12345}
+        mock_nuki.set_ble_device = Mock()
+        mock_nuki._user_command_in_progress = False
+
+        manager.add_nuki(mock_nuki)
+
+        assert manager._last_device_seen_time is None
+
+        mock_device = Mock()
+        mock_device.address = "AA:BB:CC:DD:EE:FF"
+        mock_device.rssi = -65
+
+        mock_adv_data = Mock()
+        mock_adv_data.manufacturer_data = {
+            76: bytes([0x02] + [0x00] * 23)
+        }
+
+        before = datetime.datetime.now()
+        await manager._detected_ibeacon(mock_device, mock_adv_data)
+        after = datetime.datetime.now()
+
+        assert manager._last_device_seen_time is not None
+        assert before <= manager._last_device_seen_time <= after
+
+    @pytest.mark.asyncio
+    async def test_detected_ibeacon_resets_stale_count(self):
+        """Test that detecting a device resets the stale counter."""
+        manager = NukiManager(name="TestBridge", app_id=123)
+
+        mock_nuki = AsyncMock(spec=Nuki)
+        mock_nuki.address = "aa:bb:cc:dd:ee:ff"
+        mock_nuki.device_type = DeviceType.SMARTLOCK_1_2
+        mock_nuki.last_state = {"lock_state": "LOCKED"}
+        mock_nuki.config = {"id": 12345}
+        mock_nuki.set_ble_device = Mock()
+        mock_nuki._user_command_in_progress = False
+
+        manager.add_nuki(mock_nuki)
+
+        # Set stale count to non-zero
+        manager._scanner_stale_count = 2
+
+        mock_device = Mock()
+        mock_device.address = "AA:BB:CC:DD:EE:FF"
+        mock_device.rssi = -65
+
+        mock_adv_data = Mock()
+        mock_adv_data.manufacturer_data = {
+            76: bytes([0x02] + [0x00] * 23)
+        }
+
+        await manager._detected_ibeacon(mock_device, mock_adv_data)
+
+        # Stale count should be reset
+        assert manager._scanner_stale_count == 0
 
 
 if __name__ == "__main__":

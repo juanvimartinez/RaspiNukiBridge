@@ -1,18 +1,18 @@
 #!/bin/bash
-# Native installation script for RaspiNukiBridge
-# Installs the bridge as a system service running directly on Raspberry Pi
+# Installation script for RaspiNukiBridge
+# Installs the bridge as a system service on Raspberry Pi
 
 set -e  # Exit on error
 
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  RaspiNukiBridge - Native Installation                   ║"
+echo "║  RaspiNukiBridge - Installation                          ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
     echo "❌ Error: Please run with sudo"
-    echo "Usage: sudo ./install-native.sh"
+    echo "Usage: sudo ./install.sh"
     exit 1
 fi
 
@@ -166,7 +166,7 @@ echo "╔═══════════════════════�
 echo "║  Installation Complete! 🎉                               ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
-echo "RaspiNukiBridge is now running as a native service!"
+echo "RaspiNukiBridge is now running as a service!"
 echo ""
 echo "📊 Check status:"
 echo "   sudo systemctl status raspinukibridge"
@@ -181,7 +181,7 @@ echo "⚙️  Configuration:"
 echo "   sudo nano /opt/raspinukibridge/config/nuki.yaml"
 echo "   sudo systemctl restart raspinukibridge"
 echo ""
-echo "To uninstall: sudo ./uninstall-native.sh"
+echo "To uninstall: sudo ./uninstall.sh"
 echo ""
 
 # Wait a moment for service to start

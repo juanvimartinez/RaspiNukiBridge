@@ -515,5 +515,137 @@ class TestNukiEnums:
         assert NukiCommand.ERROR_REPORT.value == 0x0012
 
 
+class TestNukiCommandQueue:
+    """Test command queue functionality."""
+
+    def test_command_queue_initialized(self, nuki_address, auth_id, nuki_public_key,
+                                        bridge_public_key, bridge_private_key):
+        """Test that command queue is initialized properly."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+
+        assert nuki._command_queue is not None
+        assert nuki._command_worker_task is None
+        assert nuki._user_command_in_progress is False
+
+    def test_connection_lock_initialized(self, nuki_address, auth_id, nuki_public_key,
+                                          bridge_public_key, bridge_private_key):
+        """Test that connection lock is initialized properly."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+
+        assert nuki._connection_lock is not None
+        assert nuki._is_connecting is False
+        assert nuki._is_disconnecting is False
+
+
+class TestNukiCleanup:
+    """Test cleanup and shutdown functionality."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_worker_task(self, nuki_address, auth_id,
+                                                 nuki_public_key, bridge_public_key,
+                                                 bridge_private_key):
+        """Test cleanup cancels command worker task."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+
+        # Create a mock worker task that behaves like a real cancelled task
+        async def dummy_task():
+            await asyncio.sleep(100)
+
+        task = asyncio.create_task(dummy_task())
+        nuki._command_worker_task = task
+
+        # Mock manager
+        mock_manager = AsyncMock()
+        mock_manager.start_scanning = AsyncMock()
+        nuki.manager = mock_manager
+
+        # No client connected
+        nuki._client = None
+
+        await nuki.cleanup()
+
+        assert task.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_opener_state_task(self, nuki_address, auth_id,
+                                                       nuki_public_key, bridge_public_key,
+                                                       bridge_private_key):
+        """Test cleanup cancels reset opener state task."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+
+        # Create a mock opener state task
+        mock_task = Mock()
+        mock_task.cancel = Mock()
+        nuki._reset_opener_state_task = mock_task
+
+        # Mock manager
+        mock_manager = AsyncMock()
+        mock_manager.start_scanning = AsyncMock()
+        nuki.manager = mock_manager
+
+        # No client connected
+        nuki._client = None
+
+        await nuki.cleanup()
+
+        mock_task.cancel.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_disconnects_client(self, nuki_address, auth_id,
+                                                nuki_public_key, bridge_public_key,
+                                                bridge_private_key):
+        """Test cleanup disconnects connected client."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+        nuki.device_type = DeviceType.SMARTLOCK_1_2
+
+        # Mock manager
+        mock_manager = AsyncMock()
+        mock_manager.start_scanning = AsyncMock()
+        nuki.manager = mock_manager
+
+        # Setup a connected client
+        mock_client = AsyncMock()
+        mock_client.is_connected = True
+        mock_client.disconnect = AsyncMock()
+        nuki._client = mock_client
+
+        await nuki.cleanup()
+
+        mock_client.disconnect.assert_called_once()
+
+
+class TestNukiRetryLogic:
+    """Test retry and backoff logic."""
+
+    def test_default_retry_count(self, nuki_address, auth_id, nuki_public_key,
+                                  bridge_public_key, bridge_private_key):
+        """Test default retry count."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+
+        assert nuki.retry == 3
+
+    def test_default_connection_timeout(self, nuki_address, auth_id, nuki_public_key,
+                                         bridge_public_key, bridge_private_key):
+        """Test default connection timeout."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+
+        assert nuki.connection_timeout == 10
+
+    def test_default_command_timeout(self, nuki_address, auth_id, nuki_public_key,
+                                      bridge_public_key, bridge_private_key):
+        """Test default command timeout."""
+        nuki = Nuki(nuki_address, auth_id, nuki_public_key,
+                    bridge_public_key, bridge_private_key)
+
+        assert nuki.command_timeout == 30
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
