@@ -144,8 +144,25 @@ class NukiManager:
         """Initialize scanner state - stop any existing scans from previous runs"""
         logger.info("Initializing scanner - cleaning up any stale BlueZ state")
 
-        # Only try to stop if we suspect a scan might be running
-        # Don't try multiple times - that seems to confuse BlueZ
+        # Step 1: Force disconnect any lingering connections at D-Bus level
+        import subprocess
+        logger.debug("Forcing BlueZ adapter reset...")
+        try:
+            # Remove all devices connected to this adapter to clear stale state
+            result = subprocess.run(
+                [
+                    "bash", "-c",
+                    f"for dev in $(bluetoothctl devices Connected | cut -d' ' -f2); do bluetoothctl disconnect $dev 2>/dev/null; done"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            logger.debug("Disconnected any lingering Bluetooth devices")
+        except Exception as e:
+            logger.debug(f"Could not disconnect lingering devices: {e}")
+
+        # Step 2: Stop any existing scan
         try:
             await self._scanner.stop()
             logger.info("Stopped existing scanner from previous run")
@@ -153,6 +170,27 @@ class NukiManager:
         except Exception as e:
             # This is normal on clean start - no scan was running
             logger.debug(f"No existing scan to stop (normal on first run): {e}")
+
+        # Step 3: Power cycle the adapter to clear any stuck state
+        try:
+            logger.debug("Power cycling Bluetooth adapter...")
+            # Power off
+            subprocess.run(
+                ["sudo", "hciconfig", self._adapter, "down"],
+                capture_output=True,
+                timeout=3
+            )
+            await asyncio.sleep(1)
+            # Power on
+            subprocess.run(
+                ["sudo", "hciconfig", self._adapter, "up"],
+                capture_output=True,
+                timeout=3
+            )
+            await asyncio.sleep(2)
+            logger.debug("✅ Bluetooth adapter power cycled")
+        except Exception as e:
+            logger.warning(f"Could not power cycle adapter (may not be necessary): {e}")
 
         # Ensure our state matches reality
         self._scanner_running = False
