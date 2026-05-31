@@ -546,6 +546,11 @@ class NukiManager:
                     logger.error(f"Connect failed during beacon detection: {e}")
                     # Don't restart scanner here - connect() cleanup will handle it
                     return
+            # Don't queue state updates if a user command is in progress
+            # This prevents update_state from interfering with lock/unlock retries
+            if nuki._user_command_in_progress:
+                logger.debug("Skipping iBeacon-triggered update - user command in progress")
+                return
             if not nuki.last_state or tx_p & 0x1:
                 await nuki.update_state()
             elif not nuki.config:
@@ -586,6 +591,7 @@ class Nuki:
         # Command queue for sequential execution
         self._command_queue = asyncio.Queue()
         self._command_worker_task = None
+        self._user_command_in_progress = False  # Prevent iBeacon updates during user commands
 
         self._BLE_CHAR = None
         self._BLE_PAIRING_CHAR = None
@@ -1121,39 +1127,55 @@ class Nuki:
 
     async def _lock_impl(self):
         logger.info("Locking nuki")
-        self._challenge_command = NukiAction.LOCK
-        payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
-        cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
-        await self._send_data(self._BLE_CHAR, cmd)
+        self._user_command_in_progress = True
+        try:
+            self._challenge_command = NukiAction.LOCK
+            payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
+            cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
+            await self._send_data(self._BLE_CHAR, cmd)
+        finally:
+            self._user_command_in_progress = False
 
     async def unlock(self):
         return await self._queue_command(self._unlock_impl)
 
     async def _unlock_impl(self):
         logger.info("Unlocking")
-        self._challenge_command = NukiAction.UNLOCK
-        payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
-        cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
-        await self._send_data(self._BLE_CHAR, cmd)
+        self._user_command_in_progress = True
+        try:
+            self._challenge_command = NukiAction.UNLOCK
+            payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
+            cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
+            await self._send_data(self._BLE_CHAR, cmd)
+        finally:
+            self._user_command_in_progress = False
 
     async def unlatch(self):
         return await self._queue_command(self._unlatch_impl)
 
     async def _unlatch_impl(self):
-        self._challenge_command = NukiAction.UNLATCH
-        payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
-        cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
-        await self._send_data(self._BLE_CHAR, cmd)
+        self._user_command_in_progress = True
+        try:
+            self._challenge_command = NukiAction.UNLATCH
+            payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
+            cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
+            await self._send_data(self._BLE_CHAR, cmd)
+        finally:
+            self._user_command_in_progress = False
 
     async def lock_action(self, action):
         return await self._queue_command(self._lock_action_impl, action)
 
     async def _lock_action_impl(self, action):
         logger.info(f"Lock action {action}")
-        self._challenge_command = NukiAction(action)
-        payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
-        cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
-        await self._send_data(self._BLE_CHAR, cmd)
+        self._user_command_in_progress = True
+        try:
+            self._challenge_command = NukiAction(action)
+            payload = NukiCommand.CHALLENGE.value.to_bytes(2, "little")
+            cmd = self._encrypt_command(NukiCommand.REQUEST_DATA.value, payload)
+            await self._send_data(self._BLE_CHAR, cmd)
+        finally:
+            self._user_command_in_progress = False
 
     async def get_config(self):
         return await self._queue_command(self._get_config_impl)
