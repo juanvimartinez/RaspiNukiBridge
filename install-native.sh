@@ -77,15 +77,12 @@ sudo -u raspinuki venv/bin/pip install -r requirements.txt
 echo "✅ Python dependencies installed"
 echo ""
 
-echo "Step 6/8: Migrating configuration..."
+echo "Step 6/8: Setting up configuration..."
 if [ -f "/opt/raspinukibridge/config/nuki.yaml" ]; then
     echo "   Configuration already exists at /opt/raspinukibridge/config/nuki.yaml"
-elif [ -f "$PWD/../raspinukibridge_docker/config/nuki.yaml" ]; then
-    cp "$PWD/../raspinukibridge_docker/config/nuki.yaml" /opt/raspinukibridge/config/
-    chown raspinuki:raspinuki /opt/raspinukibridge/config/nuki.yaml
-    echo "   Migrated config from Docker deployment"
 else
     echo "   ⚠️  No existing config found - will generate on first run"
+    echo "   Run: /opt/raspinukibridge/venv/bin/python3 /opt/raspinukibridge/__main__.py --generate-config"
 fi
 echo "✅ Configuration ready"
 echo ""

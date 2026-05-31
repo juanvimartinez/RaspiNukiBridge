@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick Bluetooth scan test - run inside container to verify BLE access"""
+"""Quick Bluetooth scan test - verify BLE access on Raspberry Pi"""
 import asyncio
 from bleak import BleakScanner
 
@@ -12,13 +12,13 @@ async def scan():
     if not devices:
         print("❌ No devices found!")
         print("\nPossible causes:")
-        print("  - Container doesn't have Bluetooth access")
-        print("  - BlueZ not running on host")
+        print("  - BlueZ not running")
+        print("  - Bluetooth adapter not powered on")
         print("  - No BLE devices nearby")
         print("\nTroubleshooting:")
-        print("  1. Check: docker exec raspinukibridge hciconfig")
-        print("  2. On host: sudo hciconfig hci0 up")
-        print("  3. On host: sudo systemctl restart bluetooth")
+        print("  1. Check adapter: hciconfig")
+        print("  2. Power on: sudo hciconfig hci0 up")
+        print("  3. Restart Bluetooth: sudo systemctl restart bluetooth")
         return
 
     print(f"✅ Found {len(devices)} device(s):\n")

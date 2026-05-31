@@ -139,6 +139,8 @@ class NukiManager:
         self._connection_failure_count = 0  # Track consecutive connection failures
         self._health_check_task = None  # Background health monitoring task
         self._health_check_failure_count = 0  # Track consecutive health check failures
+        self._last_device_seen_time = None  # Track when we last saw any BLE device
+        self._scanner_stale_count = 0  # Track how many checks with no device seen
 
     async def initialize(self):
         """Initialize scanner state - stop any existing scans from previous runs"""
@@ -235,49 +237,70 @@ class NukiManager:
         except Exception as dbus_err:
             logger.warning(f"Could not call D-Bus StopDiscovery: {dbus_err}")
 
-        # Restart Bluetooth directly (native) or via trigger file (Docker)
-        if os.path.exists("/opt/raspinukibridge"):
-            # Running in Docker - use trigger file for watcher service
-            logger.info("Creating trigger file for watcher service (Docker mode)...")
-            with open("/tmp/nuki-bluetooth-restart-trigger", "w") as f:
-                f.write(f"{datetime.datetime.now().isoformat()}\n")
-        else:
-            # Running natively - reload kernel module to force reset hardware
-            logger.info("Reloading Bluetooth kernel module to reset hardware...")
-            try:
-                # Unload btusb kernel module (this will kill bluetoothd)
-                logger.info("Unloading btusb module...")
-                subprocess.run(
-                    ["sudo", "modprobe", "-r", "btusb"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
-                await asyncio.sleep(3)
+        # Reload kernel module to force reset hardware (native deployment)
+        logger.info("🔄 Reloading Bluetooth kernel module to reset hardware...")
+        try:
+            # First power down the adapter
+            logger.info("Powering down Bluetooth adapter...")
+            subprocess.run(
+                ["sudo", "hciconfig", self._adapter, "down"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            await asyncio.sleep(1)
 
-                # Reload btusb kernel module
-                logger.info("Reloading btusb module...")
-                subprocess.run(
-                    ["sudo", "modprobe", "btusb"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
-                await asyncio.sleep(3)
+            # Unload btusb kernel module (this will kill bluetoothd)
+            logger.info("Unloading btusb module...")
+            result = subprocess.run(
+                ["sudo", "modprobe", "-r", "btusb"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                logger.warning(f"modprobe -r btusb failed: {result.stderr}")
+            await asyncio.sleep(3)
 
-                # Restart Bluetooth service
-                logger.info("Restarting Bluetooth service...")
-                subprocess.run(
-                    ["sudo", "systemctl", "restart", "bluetooth"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                logger.info("✅ Bluetooth kernel module reloaded and service restarted")
-            except Exception as reload_err:
-                logger.error(f"Failed to reload kernel module: {reload_err}")
+            # Reload btusb kernel module
+            logger.info("Reloading btusb module...")
+            result = subprocess.run(
+                ["sudo", "modprobe", "btusb"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                logger.warning(f"modprobe btusb failed: {result.stderr}")
+            await asyncio.sleep(3)
+
+            # Restart Bluetooth service
+            logger.info("Restarting Bluetooth service...")
+            result = subprocess.run(
+                ["sudo", "systemctl", "restart", "bluetooth"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode != 0:
+                logger.warning(f"systemctl restart bluetooth failed: {result.stderr}")
+            await asyncio.sleep(3)
+
+            # Power up the adapter
+            logger.info("Powering up Bluetooth adapter...")
+            subprocess.run(
+                ["sudo", "hciconfig", self._adapter, "up"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            logger.info("✅ Bluetooth kernel module reloaded and service restarted")
+        except Exception as reload_err:
+            logger.error(f"Failed to reload kernel module: {reload_err}")
 
         logger.info("Waiting 20 seconds for Bluetooth to fully initialize...")
+        await asyncio.sleep(20)
         await asyncio.sleep(20)
 
         # Recreate scanner object to get fresh D-Bus connection
@@ -366,6 +389,30 @@ class NukiManager:
                         logger.error("Triggering nuclear reset BEFORE user experiences failure...")
                         self._health_check_failure_count = 0
                         await self._nuclear_bluetooth_reset()
+
+                # Also check if scanner seems stale (no device seen in 5+ minutes while supposedly running)
+                if self._scanner_running and self._last_device_seen_time:
+                    time_since_last_seen = (datetime.datetime.now() - self._last_device_seen_time).total_seconds()
+                    if time_since_last_seen > 300:  # 5 minutes
+                        self._scanner_stale_count += 1
+                        logger.warning(f"⚠️ Scanner appears stale - no device seen in {int(time_since_last_seen)}s (count: {self._scanner_stale_count}/3)")
+
+                        if self._scanner_stale_count >= 3:
+                            logger.error("🔴 PROACTIVE DETECTION: Scanner stale - no BLE devices seen for too long")
+                            logger.error("Restarting scanner to recover...")
+                            self._scanner_stale_count = 0
+                            # Try to restart scanner first, if that fails, nuclear reset
+                            try:
+                                await self.stop_scanning()
+                                await asyncio.sleep(2)
+                                await self.start_scanning()
+                                logger.info("✅ Scanner restarted due to staleness")
+                            except Exception as restart_err:
+                                logger.error(f"Scanner restart failed: {restart_err}, triggering nuclear reset")
+                                await self._nuclear_bluetooth_reset()
+                    else:
+                        # Device seen recently, scanner is working
+                        self._scanner_stale_count = 0
 
             except asyncio.CancelledError:
                 logger.info("Health monitor task cancelled")
@@ -483,6 +530,11 @@ class NukiManager:
             if manufacturer_data[0] != 0x02:
                 # Ignore HomeKit advertisement
                 return
+
+            # Update last seen time - this proves the scanner is working
+            self._last_device_seen_time = datetime.datetime.now()
+            self._scanner_stale_count = 0  # Reset stale counter
+
             logger.info(f"Nuki: {device_address}, RSSI: {device.rssi} {advertisement_data}")
             tx_p = manufacturer_data[-1]
             nuki = self._devices[device_address]
