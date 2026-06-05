@@ -289,7 +289,18 @@ class NukiManager:
                 logger.warning(f"modprobe btusb failed: {result.stderr}")
             await asyncio.sleep(3)
 
-            # Restart Bluetooth service
+            # Kill BlueZ daemon to ensure completely fresh process
+            logger.info("Killing BlueZ daemon to ensure fresh start...")
+            subprocess.run(
+                ["sudo", "killall", "-9", "bluetoothd"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False  # Don't fail if bluetoothd is already dead
+            )
+            await asyncio.sleep(2)
+
+            # Restart Bluetooth service (will spawn fresh bluetoothd)
             logger.info("Restarting Bluetooth service...")
             result = subprocess.run(
                 ["sudo", "systemctl", "restart", "bluetooth"],

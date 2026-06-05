@@ -121,6 +121,8 @@ raspinuki ALL=(ALL) NOPASSWD: /usr/sbin/modprobe
 raspinuki ALL=(ALL) NOPASSWD: /sbin/modprobe
 raspinuki ALL=(ALL) NOPASSWD: /usr/bin/hciconfig
 raspinuki ALL=(ALL) NOPASSWD: /bin/hciconfig
+raspinuki ALL=(ALL) NOPASSWD: /usr/bin/killall
+raspinuki ALL=(ALL) NOPASSWD: /bin/killall
 EOF
 chmod 0440 /etc/sudoers.d/raspinuki-bluetooth
 echo "✅ Sudo permissions configured"
