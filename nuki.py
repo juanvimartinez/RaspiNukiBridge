@@ -292,7 +292,7 @@ class NukiManager:
             # Kill BlueZ daemon to ensure completely fresh process
             logger.info("Killing BlueZ daemon to ensure fresh start...")
             subprocess.run(
-                ["sudo", "killall", "-9", "bluetoothd"],
+                ["sudo", "pkill", "-9", "bluetoothd"],
                 capture_output=True,
                 text=True,
                 timeout=5,

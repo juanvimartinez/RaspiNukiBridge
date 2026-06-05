@@ -121,8 +121,8 @@ raspinuki ALL=(ALL) NOPASSWD: /usr/sbin/modprobe
 raspinuki ALL=(ALL) NOPASSWD: /sbin/modprobe
 raspinuki ALL=(ALL) NOPASSWD: /usr/bin/hciconfig
 raspinuki ALL=(ALL) NOPASSWD: /bin/hciconfig
-raspinuki ALL=(ALL) NOPASSWD: /usr/bin/killall
-raspinuki ALL=(ALL) NOPASSWD: /bin/killall
+raspinuki ALL=(ALL) NOPASSWD: /usr/bin/pkill
+raspinuki ALL=(ALL) NOPASSWD: /bin/pkill
 EOF
 chmod 0440 /etc/sudoers.d/raspinuki-bluetooth
 echo "✅ Sudo permissions configured"
@@ -160,8 +160,8 @@ EOF
 
 systemctl daemon-reload
 systemctl enable raspinukibridge
-systemctl start raspinukibridge
-echo "✅ Service created and started"
+systemctl start raspinukibridge --no-block
+echo "✅ Service created and starting (Bluetooth initialization takes ~20 seconds)"
 echo ""
 
 echo "╔══════════════════════════════════════════════════════════╗"
@@ -186,8 +186,10 @@ echo ""
 echo "To uninstall: sudo ./uninstall.sh"
 echo ""
 
-# Wait a moment for service to start
-sleep 3
+# Wait for service to initialize (Bluetooth nuclear reset takes ~20 seconds)
+echo ""
+echo "Waiting for Bluetooth initialization..."
+sleep 25
 
 # Show initial status
 echo "Current service status:"
