@@ -142,6 +142,7 @@ class NukiManager:
         self._last_device_seen_time = None  # Track when we last saw any BLE device
         self._scanner_stale_count = 0  # Track how many checks with no device seen
         self._scanner_created_time = datetime.datetime.now()  # Track when scanner was created
+        self._scanner_recreation_count = 0  # Track consecutive scanner recreations without seeing devices
 
     async def initialize(self):
         """Initialize Bluetooth with a clean reset to ensure reliable startup"""
@@ -425,7 +426,19 @@ class NukiManager:
 
                         if self._scanner_stale_count >= 3:
                             logger.error("🔴 PROACTIVE DETECTION: Scanner stale - no BLE devices seen for too long")
-                            logger.error("Recreating scanner with fresh D-Bus connection...")
+
+                            # Track consecutive scanner recreations
+                            self._scanner_recreation_count += 1
+
+                            # If we've recreated the scanner 3 times and still no devices, do nuclear reset
+                            if self._scanner_recreation_count >= 3:
+                                logger.error(f"⚠️ Scanner recreated {self._scanner_recreation_count} times without seeing devices - triggering nuclear reset")
+                                self._scanner_recreation_count = 0
+                                self._scanner_stale_count = 0
+                                await self._nuclear_bluetooth_reset()
+                                continue
+
+                            logger.error(f"Recreating scanner with fresh D-Bus connection (attempt {self._scanner_recreation_count}/3)...")
                             self._scanner_stale_count = 0
 
                             # Recreate the scanner object - the old one has a stale D-Bus connection
@@ -438,14 +451,23 @@ class NukiManager:
                                         logger.warning(f"Old scanner stop error (ignored): {stop_err}")
                                     self._scanner_running = False
 
-                                await asyncio.sleep(2)
+                                # Explicitly delete and force garbage collection of old scanner
+                                # to ensure D-Bus signal handlers are unregistered
+                                old_scanner = self._scanner
+                                self._scanner = None
+                                del old_scanner
+
+                                # Force garbage collection to clean up stale D-Bus connections
+                                import gc
+                                gc.collect()
+
+                                # Wait longer for D-Bus cleanup
+                                await asyncio.sleep(5)
 
                                 # Create fresh scanner with new D-Bus connection
-                                old_scanner = self._scanner
                                 self._scanner = BleakScanner(adapter=self._adapter)
                                 self._scanner.register_detection_callback(self._detected_ibeacon)
                                 self._scanner_created_time = datetime.datetime.now()
-                                del old_scanner
 
                                 # Start the fresh scanner
                                 async with self._scanner_lock:
@@ -459,6 +481,7 @@ class NukiManager:
                     else:
                         # Device seen recently, scanner is working
                         self._scanner_stale_count = 0
+                        self._scanner_recreation_count = 0  # Reset counter when we see devices
 
                 # Preventive scanner refresh every 30 minutes to avoid D-Bus connection staleness
                 scanner_age = (datetime.datetime.now() - self._scanner_created_time).total_seconds()
@@ -472,14 +495,21 @@ class NukiManager:
                                 logger.debug(f"Scanner stop during refresh: {stop_err}")
                             self._scanner_running = False
 
-                        await asyncio.sleep(1)
+                        # Explicitly delete and force garbage collection
+                        old_scanner = self._scanner
+                        self._scanner = None
+                        del old_scanner
+
+                        # Force garbage collection to clean up stale D-Bus connections
+                        import gc
+                        gc.collect()
+
+                        await asyncio.sleep(3)
 
                         # Create fresh scanner
-                        old_scanner = self._scanner
                         self._scanner = BleakScanner(adapter=self._adapter)
                         self._scanner.register_detection_callback(self._detected_ibeacon)
                         self._scanner_created_time = datetime.datetime.now()
-                        del old_scanner
 
                         async with self._scanner_lock:
                             await self._scanner.start()
